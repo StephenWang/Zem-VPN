@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "Zem",
+  "outputfilename": "Zem",
+  "frontend": {
+    "dir": "./frontend",
+    "install": "npm install",
+    "build": "npm run build",
+    "dev": "npm run dev",
+    "wailsjsdir": "./frontend/src"
+  },
+  "author": {
+    "name": "Developer",
+    "email": "dev@example.com"
+  }
+}

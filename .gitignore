@@ -1,18 +1,39 @@
-# Build and Release Folders
-bin-debug/
-bin-release/
-[Oo]bj/
-[Bb]in/
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
 
-# Other files and folders
-.settings/
+# Wails
+build/bin/
+dist/
+frontend/dist/
+frontend/src/wailsjs/
 
-# Executables
-*.swf
-*.air
-*.ipa
-*.apk
+# wintun
+build/windows/wintun.dll
 
-# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
-# should NOT be excluded as they contain compiler settings and other important
-# information for Eclipse / Flash Builder.
+# Data & logs
+*.log
+*.db
+ Zem/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
