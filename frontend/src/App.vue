@@ -59,12 +59,18 @@
     </div>
 
     <!-- 提示 -->
-    <div v-if="error" class="toast error" @click="error = ''">
-      {{ error }}
-    </div>
-    <div v-if="success" class="toast success" @click="success = ''">
-      {{ success }}
-    </div>
+    <Transition name="toast">
+      <div v-if="error" class="toast error" @click="error = ''">
+        <span class="toast-message">{{ error }}</span>
+        <span class="toast-close">×</span>
+      </div>
+    </Transition>
+    <Transition name="toast">
+      <div v-if="success" class="toast success" @click="success = ''">
+        <span class="toast-message">{{ success }}</span>
+        <span class="toast-close">×</span>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -351,12 +357,37 @@ main {
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 12px 24px;
+  padding: 12px 20px;
   border-radius: 8px;
   font-size: 14px;
   cursor: pointer;
   animation: slideUp 0.3s ease;
   z-index: 1000;
+  max-width: 80vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.toast-message {
+  word-break: break-word;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  font-size: 18px;
+  font-weight: bold;
+  line-height: 1;
+  margin-top: -2px;
+  opacity: 0.8;
+}
+
+.toast-close:hover {
+  opacity: 1;
 }
 
 .toast.error {
@@ -367,6 +398,23 @@ main {
 .toast.success {
   background: #00d4aa;
   color: #1a1a2e;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: all 0.3s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  transform: translateX(-50%) translateY(20px);
+  opacity: 0;
+}
+
+.toast-enter-to,
+.toast-leave-from {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
 }
 
 @keyframes slideUp {

@@ -32,12 +32,21 @@ timeout /t 1 /nobreak > nul
 echo Deleting services...
 sc.exe delete ZemCoreSvc > nul 2> nul
 
-wails build -ldflags "-s -w -buildid=" -tags "with_utls with_quic with_gvisor" -o "dist\Zem.exe"
+set DIST_DIR=dist
+if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
+
+wails build -ldflags "-s -w -buildid=" -o "%DIST_DIR%\Zem.exe"
 
 if exist "build\bin\dist\Zem.exe" (
-    copy /Y "build\bin\dist\Zem.exe" "dist\Zem.exe" > nul
-    echo Copied build\bin\dist\Zem.exe to dist\Zem.exe
+    copy /Y "build\bin\dist\Zem.exe" "%DIST_DIR%\Zem.exe" > nul
+    echo Copied build\bin\dist\Zem.exe to %DIST_DIR%\Zem.exe
 )
 
-echo Build complete!
+if exist "%DIST_DIR%\Zem.exe" (
+    echo Build complete: %DIST_DIR%\Zem.exe
+) else (
+    echo Build failed: %DIST_DIR%\Zem.exe not found
+    exit /b 1
+)
+
 pause

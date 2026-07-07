@@ -10,6 +10,10 @@ export function AddSubscriptionWithOptions(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddSubscriptionWithOptions'](arg1, arg2, arg3);
 }
 
+export function ClearSpeedTestCache(arg1) {
+  return window['go']['main']['App']['ClearSpeedTestCache'](arg1);
+}
+
 export function ConnectProfile(arg1) {
   return window['go']['main']['App']['ConnectProfile'](arg1);
 }
@@ -58,12 +62,20 @@ export function GetProxyPort() {
   return window['go']['main']['App']['GetProxyPort']();
 }
 
+export function GetSelectedNode(arg1) {
+  return window['go']['main']['App']['GetSelectedNode'](arg1);
+}
+
 export function GetServers(arg1) {
   return window['go']['main']['App']['GetServers'](arg1);
 }
 
 export function GetServiceMode() {
   return window['go']['main']['App']['GetServiceMode']();
+}
+
+export function GetSpeedTestCache(arg1) {
+  return window['go']['main']['App']['GetSpeedTestCache'](arg1);
 }
 
 export function GetStatus() {
@@ -144,6 +156,10 @@ export function SpeedTest(arg1) {
 
 export function SpeedTestNode(arg1, arg2) {
   return window['go']['main']['App']['SpeedTestNode'](arg1, arg2);
+}
+
+export function SpeedTestNodes(arg1, arg2) {
+  return window['go']['main']['App']['SpeedTestNodes'](arg1, arg2);
 }
 
 export function StartService() {

@@ -4,9 +4,15 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+)
+
+const (
+	defaultGeositeCNRuleSetURL = "https://github.com/aleskxyz/sing-box-rules/releases/download/202607060934/geosite-cn.srs"
+	defaultGeoIPCNRuleSetURL   = "https://github.com/aleskxyz/sing-box-rules/releases/download/202607060934/geoip-cn.srs"
 )
 
 // ========== Clash 结构定义 ==========
@@ -29,49 +35,49 @@ type ClashConfig struct {
 }
 
 type ClashProxy struct {
-	Name           string                 `yaml:"name"`
-	Type           string                 `yaml:"type"`
-	Server         string                 `yaml:"server"`
-	Port           int                    `yaml:"port"`
-	UUID           string                 `yaml:"uuid,omitempty"`
-	AlterID        int                    `yaml:"alterId,omitempty"`
-	Cipher         string                 `yaml:"cipher,omitempty"`
-	Password       string                 `yaml:"password,omitempty"`
-	Username       string                 `yaml:"username,omitempty"`
-	UDP            bool                   `yaml:"udp,omitempty"`
-	SkipCertVerify bool                   `yaml:"skip-cert-verify,omitempty"`
-	TLS            bool                   `yaml:"tls,omitempty"`
-	Network        string                 `yaml:"network,omitempty"`
-	Flow           string                 `yaml:"flow,omitempty"`
-	ServerName     string                 `yaml:"servername,omitempty"`
-	SNI            string                 `yaml:"sni,omitempty"`
-	WSOpts         *ClashWSOpts           `yaml:"ws-opts,omitempty"`
-	GRPCOpts       *ClashGRPCOpts         `yaml:"grpc-opts,omitempty"`
-	HTTPOpts       *ClashHTTPOpts         `yaml:"http-opts,omitempty"`
-	RealityOpts    *ClashRealityOpts      `yaml:"reality-opts,omitempty"`
-	Obfs           string                 `yaml:"obfs,omitempty"`
-	ObfsParam      string                 `yaml:"obfs-param,omitempty"`
-	ObfsPassword   string                 `yaml:"obfs-password,omitempty"`
-	Protocol       string                 `yaml:"protocol,omitempty"`
-	ProtocolParam  string                 `yaml:"protocol-param,omitempty"`
-	Plugin         string                 `yaml:"plugin,omitempty"`
-	PluginOpts     map[string]interface{} `yaml:"plugin-opts,omitempty"`
-	Headers        map[string]string      `yaml:"headers,omitempty"`
-	ALPN           []string               `yaml:"alpn,omitempty"`
-	Fingerprint    string                 `yaml:"fingerprint,omitempty"`
-	ClientFingerprint string              `yaml:"client-fingerprint,omitempty"`
-	Up             string                 `yaml:"up,omitempty"`
-	Down           string                 `yaml:"down,omitempty"`
-	Ports          string                 `yaml:"ports,omitempty"`
-	Congestion     string                 `yaml:"congestion,omitempty"`
-	ReduceRtt      bool                   `yaml:"reduce-rtt,omitempty"`
-	UDPRelayMode   string                 `yaml:"udp-relay-mode,omitempty"`
-	Reserved       string                 `yaml:"reserved,omitempty"`
-	PublicKey      string                 `yaml:"public-key,omitempty"`
-	PreSharedKey   string                 `yaml:"pre-shared-key,omitempty"`
-	PrivateKey     string                 `yaml:"private-key,omitempty"`
-	Peers          []ClashWGPeer          `yaml:"peers,omitempty"`
-	MTU            int                    `yaml:"mtu,omitempty"`
+	Name              string                 `yaml:"name"`
+	Type              string                 `yaml:"type"`
+	Server            string                 `yaml:"server"`
+	Port              int                    `yaml:"port"`
+	UUID              string                 `yaml:"uuid,omitempty"`
+	AlterID           int                    `yaml:"alterId,omitempty"`
+	Cipher            string                 `yaml:"cipher,omitempty"`
+	Password          string                 `yaml:"password,omitempty"`
+	Username          string                 `yaml:"username,omitempty"`
+	UDP               bool                   `yaml:"udp,omitempty"`
+	SkipCertVerify    bool                   `yaml:"skip-cert-verify,omitempty"`
+	TLS               bool                   `yaml:"tls,omitempty"`
+	Network           string                 `yaml:"network,omitempty"`
+	Flow              string                 `yaml:"flow,omitempty"`
+	ServerName        string                 `yaml:"servername,omitempty"`
+	SNI               string                 `yaml:"sni,omitempty"`
+	WSOpts            *ClashWSOpts           `yaml:"ws-opts,omitempty"`
+	GRPCOpts          *ClashGRPCOpts         `yaml:"grpc-opts,omitempty"`
+	HTTPOpts          *ClashHTTPOpts         `yaml:"http-opts,omitempty"`
+	RealityOpts       *ClashRealityOpts      `yaml:"reality-opts,omitempty"`
+	Obfs              string                 `yaml:"obfs,omitempty"`
+	ObfsParam         string                 `yaml:"obfs-param,omitempty"`
+	ObfsPassword      string                 `yaml:"obfs-password,omitempty"`
+	Protocol          string                 `yaml:"protocol,omitempty"`
+	ProtocolParam     string                 `yaml:"protocol-param,omitempty"`
+	Plugin            string                 `yaml:"plugin,omitempty"`
+	PluginOpts        map[string]interface{} `yaml:"plugin-opts,omitempty"`
+	Headers           map[string]string      `yaml:"headers,omitempty"`
+	ALPN              []string               `yaml:"alpn,omitempty"`
+	Fingerprint       string                 `yaml:"fingerprint,omitempty"`
+	ClientFingerprint string                 `yaml:"client-fingerprint,omitempty"`
+	Up                string                 `yaml:"up,omitempty"`
+	Down              string                 `yaml:"down,omitempty"`
+	Ports             string                 `yaml:"ports,omitempty"`
+	Congestion        string                 `yaml:"congestion,omitempty"`
+	ReduceRtt         bool                   `yaml:"reduce-rtt,omitempty"`
+	UDPRelayMode      string                 `yaml:"udp-relay-mode,omitempty"`
+	Reserved          string                 `yaml:"reserved,omitempty"`
+	PublicKey         string                 `yaml:"public-key,omitempty"`
+	PreSharedKey      string                 `yaml:"pre-shared-key,omitempty"`
+	PrivateKey        string                 `yaml:"private-key,omitempty"`
+	Peers             []ClashWGPeer          `yaml:"peers,omitempty"`
+	MTU               int                    `yaml:"mtu,omitempty"`
 }
 
 type ClashWSOpts struct {
@@ -95,11 +101,11 @@ type ClashRealityOpts struct {
 }
 
 type ClashWGPeer struct {
-	Server      string `yaml:"server"`
-	Port        int    `yaml:"port"`
-	PublicKey   string `yaml:"public-key"`
+	Server       string `yaml:"server"`
+	Port         int    `yaml:"port"`
+	PublicKey    string `yaml:"public-key"`
 	PreSharedKey string `yaml:"pre-shared-key"`
-	Reserved    string `yaml:"reserved"`
+	Reserved     string `yaml:"reserved"`
 }
 
 type ClashProxyGroup struct {
@@ -161,7 +167,8 @@ func buildOutbound(p ClashProxy) Outbound {
 		out.ServerPort = p.Port
 		out.UUID = p.UUID
 		out.Security = firstNonEmpty(p.Cipher, "auto")
-		out.AlterID = p.AlterID
+		// sing-box 1.13+ 已移除 alterId（仅支持 VMessAEAD）
+		out.AlterID = 0
 		out.Transport = buildTransport(p)
 		if p.TLS || out.Transport != nil && (out.Transport.Type == "grpc" || p.ServerName != "" || p.SNI != "") {
 			out.TLS = buildTLS(p)
@@ -332,19 +339,23 @@ func buildTransport(p ClashProxy) *Transport {
 	network := strings.ToLower(p.Network)
 	switch network {
 	case "ws":
-		if p.WSOpts == nil {
-			return nil
+		t := &Transport{Type: "ws"}
+		if p.WSOpts != nil {
+			t.Path = p.WSOpts.Path
+			t.Headers = p.WSOpts.Headers
 		}
-		t := &Transport{
-			Type:    "ws",
-			Path:    p.WSOpts.Path,
-			Headers: p.WSOpts.Headers,
+		if t.Path == "" {
+			t.Path = "/"
 		}
-		if host := p.WSOpts.Headers["Host"]; host != "" {
-			if t.Headers == nil {
-				t.Headers = make(map[string]string)
+		// 如果 headers 里没有 Host，使用 SNI/ServerName 作为 Host
+		if t.Headers == nil || t.Headers["Host"] == "" {
+			host := firstNonEmpty(p.SNI, p.ServerName)
+			if host != "" {
+				if t.Headers == nil {
+					t.Headers = make(map[string]string)
+				}
+				t.Headers["Host"] = host
 			}
-			t.Headers["Host"] = host
 		}
 		return t
 	case "grpc":
@@ -410,8 +421,17 @@ func buildGroupOutbounds(groups []ClashProxyGroup) []Outbound {
 }
 
 func buildRoute(rules []string, groups []ClashProxyGroup) RouteOptions {
+	return buildRouteWithRuleProviders(rules, nil)
+}
+
+func buildRouteWithRuleProviders(rules []string, providers map[string]interface{}) RouteOptions {
 	var routeRules []RouteRule
 	var finalOutbound string
+	ruleSets := buildRuleSetsFromProviders(providers)
+	knownRuleSets := make(map[string]bool, len(ruleSets))
+	for _, rs := range ruleSets {
+		knownRuleSets[rs.Tag] = true
+	}
 
 	// 流量嗅探规则
 	routeRules = append(routeRules, RouteRule{
@@ -425,7 +445,7 @@ func buildRoute(rules []string, groups []ClashProxyGroup) RouteOptions {
 	})
 
 	for _, rule := range rules {
-		parts := strings.Split(rule, ",")
+		parts := splitClashRule(rule)
 		if len(parts) < 2 {
 			continue
 		}
@@ -440,9 +460,9 @@ func buildRoute(rules []string, groups []ClashProxyGroup) RouteOptions {
 			outTag = parts[1]
 		}
 
-		if outTag == "DIRECT" {
+		if strings.EqualFold(outTag, "DIRECT") {
 			outTag = "direct"
-		} else if outTag == "REJECT" {
+		} else if strings.EqualFold(outTag, "REJECT") {
 			outTag = "block"
 		}
 
@@ -465,8 +485,20 @@ func buildRoute(rules []string, groups []ClashProxyGroup) RouteOptions {
 		case "SRC-IP-CIDR":
 			r.SourceIPCIDR = []string{target}
 		case "GEOIP", "GEOSITE":
-			// sing-box 1.12+ 需要 rule-set，暂跳过 GeoIP/Geosite 规则
-			continue
+			rs, ok := defaultRuleSetForGeoRule(ruleType, target)
+			if !ok {
+				continue
+			}
+			if !knownRuleSets[rs.Tag] {
+				ruleSets = append(ruleSets, rs)
+				knownRuleSets[rs.Tag] = true
+			}
+			r.RuleSet = []string{rs.Tag}
+		case "RULE-SET":
+			if !knownRuleSets[target] {
+				continue
+			}
+			r.RuleSet = []string{target}
 		case "DST-PORT":
 			ports := parsePortList(target)
 			r.Port = ports
@@ -495,7 +527,107 @@ func buildRoute(rules []string, groups []ClashProxyGroup) RouteOptions {
 		AutoDetectInterface: true,
 		Final:               finalOutbound,
 		Rules:               routeRules,
+		RuleSet:             ruleSets,
 	}
+}
+
+func splitClashRule(rule string) []string {
+	raw := strings.Split(rule, ",")
+	parts := make([]string, 0, len(raw))
+	for _, p := range raw {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		parts = append(parts, p)
+	}
+	return parts
+}
+
+func buildRuleSetsFromProviders(providers map[string]interface{}) []RuleSet {
+	if len(providers) == 0 {
+		return nil
+	}
+	ruleSets := make([]RuleSet, 0, len(providers))
+	for name, raw := range providers {
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		provider, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		rs, ok := ruleSetFromProvider(name, provider)
+		if ok {
+			ruleSets = append(ruleSets, rs)
+		}
+	}
+	return ruleSets
+}
+
+func ruleSetFromProvider(name string, provider map[string]interface{}) (RuleSet, bool) {
+	rs := RuleSet{Tag: name}
+	providerType := strings.ToLower(mapString(provider, "type"))
+	path := mapString(provider, "path")
+	url := mapString(provider, "url")
+
+	switch {
+	case strings.HasSuffix(strings.ToLower(path), ".srs"):
+		rs.Type = "local"
+		rs.Path = path
+		rs.Format = "binary"
+	case strings.HasSuffix(strings.ToLower(url), ".srs"):
+		rs.Type = "remote"
+		rs.URL = url
+		rs.Format = "binary"
+	case providerType == "file" && path != "":
+		rs.Type = "local"
+		rs.Path = path
+		rs.Format = ruleSetFormatFromPath(path)
+	case (providerType == "http" || providerType == "https") && url != "":
+		rs.Type = "remote"
+		rs.URL = url
+		rs.Format = ruleSetFormatFromPath(url)
+	default:
+		return RuleSet{}, false
+	}
+	if rs.Format == "" {
+		return RuleSet{}, false
+	}
+	return rs, true
+}
+
+func mapString(m map[string]interface{}, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(v))
+}
+
+func ruleSetFormatFromPath(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".srs":
+		return "binary"
+	default:
+		return ""
+	}
+}
+
+func defaultRuleSetForGeoRule(ruleType, target string) (RuleSet, bool) {
+	target = strings.ToLower(strings.TrimSpace(target))
+	switch strings.ToUpper(ruleType) {
+	case "GEOIP":
+		if target == "cn" || target == "china" {
+			return RuleSet{Type: "remote", Tag: "geoip-cn", Format: "binary", URL: defaultGeoIPCNRuleSetURL}, true
+		}
+	case "GEOSITE":
+		if target == "cn" || target == "china" || target == "geolocation-cn" {
+			return RuleSet{Type: "remote", Tag: "geosite-cn", Format: "binary", URL: defaultGeositeCNRuleSetURL}, true
+		}
+	}
+	return RuleSet{}, false
 }
 
 func buildDNS(dns ClashDNS) *DNSOptions {

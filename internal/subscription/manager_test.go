@@ -98,6 +98,50 @@ func TestManagerDelete(t *testing.T) {
 	}
 }
 
+func TestManagerGetAndListReturnCopies(t *testing.T) {
+	m := newTestManager(t)
+	sub := &Subscription{
+		ID:          "copy-id",
+		URL:         "https://example.com/sub.yaml",
+		Name:        "test",
+		LastUpdate:  time.Now(),
+		SingBoxJSON: `{"outbounds":[]}`,
+		Options: SubscriptionOptions{
+			Headers: map[string]string{"X-Test": "one"},
+		},
+	}
+	m.Replace(sub)
+
+	got := m.Get("copy-id")
+	got.Name = "mutated"
+	got.Options.Headers["X-Test"] = "two"
+
+	again := m.Get("copy-id")
+	if again.Name != "test" {
+		t.Fatalf("Get returned internal pointer, name mutated to %q", again.Name)
+	}
+	if again.Options.Headers["X-Test"] != "one" {
+		t.Fatalf("Get returned shared headers map: %+v", again.Options.Headers)
+	}
+
+	list := m.List()
+	list[0].Name = "list-mutated"
+	if m.Get("copy-id").Name != "test" {
+		t.Fatal("List returned internal pointer")
+	}
+}
+
+func TestValidateSubscriptionURL(t *testing.T) {
+	if err := validateSubscriptionURL("https://example.com/sub.yaml"); err != nil {
+		t.Fatalf("valid url rejected: %v", err)
+	}
+	for _, raw := range []string{"file:///tmp/sub.yaml", "ftp://example.com/sub", "https:///missing-host"} {
+		if err := validateSubscriptionURL(raw); err == nil {
+			t.Fatalf("expected invalid url rejected: %s", raw)
+		}
+	}
+}
+
 func TestGenID(t *testing.T) {
 	id1 := genID("https://example.com/1")
 	id2 := genID("https://example.com/1")

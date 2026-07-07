@@ -7,6 +7,8 @@ export function AddSubscription(arg1:string,arg2:string):Promise<string>;
 
 export function AddSubscriptionWithOptions(arg1:string,arg2:string,arg3:subscription.SubscriptionOptions):Promise<string>;
 
+export function ClearSpeedTestCache(arg1:string):Promise<void>;
+
 export function ConnectProfile(arg1:string):Promise<void>;
 
 export function ConnectSubscription(arg1:string):Promise<void>;
@@ -31,9 +33,13 @@ export function GetProxyMode():Promise<string>;
 
 export function GetProxyPort():Promise<number>;
 
+export function GetSelectedNode(arg1:string):Promise<string>;
+
 export function GetServers(arg1:string):Promise<Array<Record<string, any>>>;
 
 export function GetServiceMode():Promise<boolean>;
+
+export function GetSpeedTestCache(arg1:string):Promise<Record<string, number>>;
 
 export function GetStatus():Promise<string>;
 
@@ -74,6 +80,8 @@ export function SetTunSettings(arg1:settings.TunSettings):Promise<void>;
 export function SpeedTest(arg1:string):Promise<Record<string, number>>;
 
 export function SpeedTestNode(arg1:string,arg2:string):Promise<number>;
+
+export function SpeedTestNodes(arg1:string,arg2:Array<string>):Promise<Record<string, number>>;
 
 export function StartService():Promise<void>;
 

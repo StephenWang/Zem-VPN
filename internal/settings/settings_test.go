@@ -55,3 +55,17 @@ func TestServiceMode(t *testing.T) {
 		t.Fatal("service mode should be enabled")
 	}
 }
+
+func TestServiceTokenPersists(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	token := m.GetServiceToken()
+	if token == "" {
+		t.Fatal("expected service token")
+	}
+
+	reloaded := NewManager(dir)
+	if reloaded.GetServiceToken() != token {
+		t.Fatal("service token should persist across manager reloads")
+	}
+}

@@ -284,12 +284,19 @@ const refreshProfiles = async () => {
 }
 
 const refreshStatus = async () => {
-  status.value = await GetStatus()
-  const id = await GetCurrentSubscriptionID()
-  if (id) {
-    currentSub.value = id
-  } else if (status.value !== 'connected') {
-    currentSub.value = ''
+  try {
+    status.value = await GetStatus()
+    const id = await GetCurrentSubscriptionID()
+    if (id && id.startsWith('profile:')) {
+      currentSub.value = id
+    } else if (id) {
+      currentSub.value = id
+    } else if (status.value !== 'connected') {
+      currentSub.value = ''
+    }
+    // 如果仍在连接中但 GetCurrentSubscriptionID 返回空，保持 currentSub 不变
+  } catch (e) {
+    console.error('refreshStatus error:', e)
   }
 }
 
@@ -337,9 +344,11 @@ const connect = async (id) => {
   try {
     await ConnectSubscription(id)
     currentSub.value = id
-    status.value = await GetStatus()
+    status.value = 'connected'
     showSuccess('连接成功')
   } catch (e) {
+    currentSub.value = ''
+    status.value = 'disconnected'
     showError('连接失败: ' + e)
   }
 }
@@ -352,9 +361,11 @@ const connectProfile = async (id) => {
   try {
     await ConnectProfile(id)
     currentSub.value = 'profile:' + id
-    status.value = await GetStatus()
+    status.value = 'connected'
     showSuccess('Profile 连接成功')
   } catch (e) {
+    currentSub.value = ''
+    status.value = 'disconnected'
     showError('Profile 连接失败: ' + e)
   }
 }

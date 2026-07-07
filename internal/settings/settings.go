@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -47,12 +49,14 @@ func (t *TunSettings) Normalize() {
 }
 
 type Settings struct {
-	ProxyPort      int         `json:"proxy_port"`
-	CurrentSubID   string      `json:"current_sub_id,omitempty"`
-	Tun            TunSettings `json:"tun"`
-	ServiceMode    bool        `json:"service_mode"`
-	ServicePort    int         `json:"service_port"`
-	ProxyMode      string      `json:"proxy_mode"`
+	ProxyPort     int               `json:"proxy_port"`
+	CurrentSubID  string            `json:"current_sub_id,omitempty"`
+	Tun           TunSettings       `json:"tun"`
+	ServiceMode   bool              `json:"service_mode"`
+	ServicePort   int               `json:"service_port"`
+	ServiceToken  string            `json:"service_token,omitempty"`
+	ProxyMode     string            `json:"proxy_mode"`
+	SelectedNodes map[string]string `json:"selected_nodes,omitempty"`
 }
 
 type Manager struct {
@@ -75,6 +79,10 @@ func NewManager(dataDir string) *Manager {
 	m.settings.Tun.Normalize()
 	if m.settings.ProxyMode == "" {
 		m.settings.ProxyMode = "rule"
+	}
+	if m.settings.ServiceToken == "" {
+		m.settings.ServiceToken = generateServiceToken()
+		_ = m.Save()
 	}
 	return m
 }
@@ -108,8 +116,14 @@ func (m *Manager) Load() error {
 	if s.ProxyMode == "" {
 		s.ProxyMode = "rule"
 	}
+	if s.ServiceToken == "" {
+		s.ServiceToken = generateServiceToken()
+	}
 	s.Tun.Normalize()
 	m.settings = s
+	if m.settings.SelectedNodes == nil {
+		m.settings.SelectedNodes = make(map[string]string)
+	}
 	return nil
 }
 
@@ -211,6 +225,12 @@ func (m *Manager) GetServicePort() int {
 	return m.settings.ServicePort
 }
 
+func (m *Manager) GetServiceToken() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.ServiceToken
+}
+
 func (m *Manager) SetServicePort(port int) error {
 	if port <= 0 || port > 65535 {
 		return fmt.Errorf("invalid port: %d", port)
@@ -239,4 +259,28 @@ func (m *Manager) SetProxyMode(mode string) error {
 	m.settings.ProxyMode = mode
 	m.mu.Unlock()
 	return m.Save()
+}
+
+func (m *Manager) GetSelectedNode(subID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.settings.SelectedNodes[subID]
+}
+
+func (m *Manager) SetSelectedNode(subID, nodeTag string) error {
+	m.mu.Lock()
+	if m.settings.SelectedNodes == nil {
+		m.settings.SelectedNodes = make(map[string]string)
+	}
+	m.settings.SelectedNodes[subID] = nodeTag
+	m.mu.Unlock()
+	return m.Save()
+}
+
+func generateServiceToken() string {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "zem-local-service-token"
+	}
+	return hex.EncodeToString(b[:])
 }

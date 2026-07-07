@@ -65,7 +65,6 @@ func parseVmessURL(line string) (Outbound, error) {
 	}
 
 	port, _ := strconv.Atoi(vm.Port)
-	aid, _ := strconv.Atoi(vm.Aid)
 	if port == 0 {
 		port = 443
 	}
@@ -76,8 +75,9 @@ func parseVmessURL(line string) (Outbound, error) {
 		Server:     vm.Add,
 		ServerPort: port,
 		UUID:       vm.ID,
-		AlterID:    aid,
-		Security:   firstNonEmpty(vm.Scy, "auto"),
+		// sing-box 1.13+ 已移除 alterId（仅支持 VMessAEAD）
+		AlterID:  0,
+		Security: firstNonEmpty(vm.Scy, "auto"),
 	}
 
 	network := strings.ToLower(vm.Net)

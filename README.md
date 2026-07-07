@@ -91,7 +91,7 @@ Zem/
 ├── download-wintun.sh           # wintun 自动下载脚本
 ├── build/
 │   └── windows/
-│       ├── Zem.exe.manifest   # 管理员权限清单
+│       ├── wails.exe.manifest   # 管理员权限清单（Wails 构建/开发均使用此文件）
 │       ├── wintun.dll           # TUN 驱动 (需自行下载)
 │       └── README.md            # wintun 说明
 ├── internal/

@@ -167,6 +167,15 @@ type RouteOptions struct {
 	AutoDetectInterface bool        `json:"auto_detect_interface"`
 	Final               string      `json:"final,omitempty"`
 	Rules               []RouteRule `json:"rules"`
+	RuleSet             []RuleSet   `json:"rule_set,omitempty"`
+}
+
+type RuleSet struct {
+	Type     string `json:"type"`
+	Tag      string `json:"tag"`
+	Format   string `json:"format,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Path     string `json:"path,omitempty"`
 }
 
 type RouteRule struct {

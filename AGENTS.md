@@ -26,7 +26,7 @@ Zem/
 ├── README.md
 ├── build/
 │   └── windows/
-│       ├── Zem.exe.manifest   # 管理员权限清单
+│       ├── wails.exe.manifest   # 管理员权限清单（Wails 构建/开发均使用此文件）
 │       └── README.md
 ├── internal/
 │   ├── config/                  # Clash YAML → sing-box JSON 配置转换

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -160,6 +161,81 @@ func TestBuildRouteSourceRules(t *testing.T) {
 	}
 	if !foundSrcPort {
 		t.Fatal("expected source_port rule")
+	}
+}
+
+func TestBuildRouteGeoRulesUseRuleSet(t *testing.T) {
+	route := buildRoute([]string{
+		"GEOSITE, cn, DIRECT",
+		"GEOIP, CN, DIRECT",
+		"MATCH,PROXY",
+	}, nil)
+	if len(route.RuleSet) != 2 {
+		t.Fatalf("expected 2 rule sets, got %d: %+v", len(route.RuleSet), route.RuleSet)
+	}
+
+	seen := map[string]bool{}
+	for _, rs := range route.RuleSet {
+		seen[rs.Tag] = true
+		if rs.Type != "remote" || rs.Format != "binary" || rs.URL == "" {
+			t.Fatalf("unexpected rule set: %+v", rs)
+		}
+	}
+	if !seen["geosite-cn"] || !seen["geoip-cn"] {
+		t.Fatalf("missing geo rule sets: %+v", route.RuleSet)
+	}
+
+	var ruleSetRules int
+	for _, r := range route.Rules {
+		if len(r.RuleSet) > 0 {
+			ruleSetRules++
+		}
+	}
+	if ruleSetRules != 2 {
+		t.Fatalf("expected 2 route rules using rule_set, got %d", ruleSetRules)
+	}
+}
+
+func TestConvertClashRuleProviderSRS(t *testing.T) {
+	yaml := `
+proxies:
+  - name: node
+    type: ss
+    server: 1.2.3.4
+    port: 8388
+    cipher: aes-256-gcm
+    password: pw
+rule-providers:
+  private:
+    type: http
+    url: https://example.com/private.srs
+rules:
+  - RULE-SET,private,DIRECT
+  - MATCH,node
+`
+	jsonData, err := ConvertClashToSingBox([]byte(yaml))
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+
+	var cfg SingBoxConfig
+	if err := json.Unmarshal([]byte(jsonData), &cfg); err != nil {
+		t.Fatalf("parse output: %v", err)
+	}
+	if len(cfg.Route.RuleSet) != 1 {
+		t.Fatalf("expected one rule set, got %+v", cfg.Route.RuleSet)
+	}
+	if cfg.Route.RuleSet[0].Tag != "private" || cfg.Route.RuleSet[0].Format != "binary" {
+		t.Fatalf("unexpected rule set: %+v", cfg.Route.RuleSet[0])
+	}
+	foundRule := false
+	for _, r := range cfg.Route.Rules {
+		if len(r.RuleSet) == 1 && r.RuleSet[0] == "private" && r.Outbound == "direct" {
+			foundRule = true
+		}
+	}
+	if !foundRule {
+		t.Fatalf("expected RULE-SET route rule in %+v", cfg.Route.Rules)
 	}
 }
 

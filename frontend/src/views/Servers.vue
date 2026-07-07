@@ -67,9 +67,11 @@ import {
   GetSubscriptionConfig,
   SelectServer,
   SelectGroup,
-  SpeedTestNode,
+  SpeedTestNodes,
   GetStatus,
   GetCurrentSubscriptionID,
+  GetSelectedNode,
+  GetSpeedTestCache,
   ListSubscriptions
 } from '@wailsjs/go/main/App'
 
@@ -144,28 +146,30 @@ const loadServers = async (preserveState = true) => {
       return
     }
 
-    // 优先使用当前连接的订阅，否则使用第一个
-    const status = await GetStatus()
+    // 优先使用 settings 中保存的当前订阅，其次使用已连接的订阅
+    const savedID = await GetCurrentSubscriptionID()
     let targetSub = subs[0]
-    if (status === 'connected') {
-      const currentID = await GetCurrentSubscriptionID()
-      if (currentID) {
-        const found = subs.find(s => s.id === currentID)
-        if (found) targetSub = found
-      }
+    if (savedID) {
+      const found = subs.find(s => s.id === savedID)
+      if (found) targetSub = found
     }
 
     // 如果订阅切换了，不保留旧状态
     const subChanged = currentSubID.value !== targetSub.id
     currentSubID.value = targetSub.id
 
-    const [list, groupList] = await Promise.all([
+    const [list, groupList, cache] = await Promise.all([
       GetServers(targetSub.id),
-      GetGroups(targetSub.id)
+      GetGroups(targetSub.id),
+      GetSpeedTestCache(targetSub.id)
     ])
 
     if (!preserveState || subChanged) {
       pingCache.value = {}
+    }
+    // 合并持久化测速缓存
+    for (const tag in cache || {}) {
+      pingCache.value[tag] = cache[tag]
     }
 
     servers.value = (list || []).map(s => ({
@@ -190,8 +194,14 @@ const loadSelectedTag = async (subID) => {
   try {
     const configJSON = await GetSubscriptionConfig(subID)
     const cfg = JSON.parse(configJSON || '{}')
-    const selected = (cfg.outbounds || []).find(o => o.type === 'selector' && o.tag === 'selected')
-    if (selected && selected.default) {
+    // 优先读取用户持久化选择，其次读取 selector default
+    const savedTag = await GetSelectedNode(subID)
+    if (savedTag && servers.value.some(s => s.tag === savedTag)) {
+      selectedTag.value = savedTag
+      return
+    }
+    const selected = (cfg.outbounds || []).find(o => o.type === 'selector' && (o.tag === 'selected' || o.tag === 'select'))
+    if (selected && selected.default && servers.value.some(s => s.tag === selected.default)) {
       selectedTag.value = selected.default
     } else if (servers.value.length > 0) {
       selectedTag.value = servers.value[0].tag
@@ -255,21 +265,40 @@ const runSpeedTest = async () => {
   testing.value = true
   speedTestAbort.value = false
   try {
-    for (const server of servers.value) {
-      if (speedTestAbort.value) {
-        break
-      }
-      testingTag.value = server.tag
+    const batchSize = 20
+    const tags = servers.value.map(s => s.tag)
+    for (let i = 0; i < tags.length; i += batchSize) {
+      if (speedTestAbort.value) break
+      const batch = tags.slice(i, i + batchSize)
+      testingTag.value = batch[0]
       try {
-        const ms = await SpeedTestNode(currentSubID.value, server.tag)
-        server.ping = ms
-        pingCache.value[server.tag] = ms
+        const results = await SpeedTestNodes(currentSubID.value, batch)
+        for (const server of servers.value) {
+          if (results[server.tag] !== undefined) {
+            server.ping = results[server.tag]
+            pingCache.value[server.tag] = results[server.tag]
+          }
+        }
       } catch (e) {
-        server.ping = -1
-        pingCache.value[server.tag] = -1
+        for (const tag of batch) {
+          const server = servers.value.find(s => s.tag === tag)
+          if (server) {
+            server.ping = -1
+            pingCache.value[tag] = -1
+          }
+        }
       }
     }
     if (!speedTestAbort.value) {
+      // 自动选择延迟最低且未超时的节点
+      const available = servers.value.filter(s => typeof s.ping === 'number' && s.ping >= 0)
+      if (available.length > 0) {
+        available.sort((a, b) => a.ping - b.ping)
+        const best = available[0]
+        if (best.tag !== selectedTag.value) {
+          await selectServer(best.tag)
+        }
+      }
       emit('success', '测速完成')
     }
   } catch (e) {
@@ -307,14 +336,13 @@ const refreshConnectionState = async () => {
       return
     }
 
-    const status = await GetStatus()
+    const currentStatus = await GetStatus()
     let targetSub = subs[0]
-    if (status === 'connected') {
-      const currentID = await GetCurrentSubscriptionID()
-      if (currentID) {
-        const found = subs.find(s => s.id === currentID)
-        if (found) targetSub = found
-      }
+    // 优先使用 settings 中保存的当前订阅
+    const currentID = await GetCurrentSubscriptionID()
+    if (currentID) {
+      const found = subs.find(s => s.id === currentID)
+      if (found) targetSub = found
     }
 
     const subChanged = currentSubID.value !== targetSub.id

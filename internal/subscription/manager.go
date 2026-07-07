@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,18 +20,19 @@ import (
 )
 
 const (
-	SubDir         = "subscriptions"
-	UpdateInterval = 24 * time.Hour
+	SubDir              = "subscriptions"
+	UpdateInterval      = 24 * time.Hour
+	maxSubscriptionSize = 16 << 20
 )
 
 // SubscriptionOptions 订阅下载与预处理选项
 type SubscriptionOptions struct {
-	UserAgent   string            `json:"user_agent,omitempty"`
-	Cookie      string            `json:"cookie,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Preprocess  string            `json:"preprocess,omitempty"` // 可选：base64, aes256, etc
-	Password    string            `json:"password,omitempty"`   // 用于加密订阅解密
-	SkipTLS     bool              `json:"skip_tls,omitempty"`
+	UserAgent  string            `json:"user_agent,omitempty"`
+	Cookie     string            `json:"cookie,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Preprocess string            `json:"preprocess,omitempty"` // 可选：base64, aes256, etc
+	Password   string            `json:"password,omitempty"`   // 用于加密订阅解密
+	SkipTLS    bool              `json:"skip_tls,omitempty"`
 }
 
 // Subscription 订阅元数据
@@ -106,6 +108,10 @@ func skipTLSVerify() bool {
 }
 
 func (m *Manager) fetchWithOptions(urlStr string, opts SubscriptionOptions) ([]byte, error) {
+	if err := validateSubscriptionURL(urlStr); err != nil {
+		return nil, err
+	}
+
 	tr := &http.Transport{}
 	if skipTLSVerify() || opts.SkipTLS {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
@@ -139,9 +145,12 @@ func (m *Manager) fetchWithOptions(urlStr string, opts SubscriptionOptions) ([]b
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSubscriptionSize+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(data) > maxSubscriptionSize {
+		return nil, fmt.Errorf("subscription too large: exceeds %d bytes", maxSubscriptionSize)
 	}
 
 	if resp.StatusCode != 200 {
@@ -159,6 +168,20 @@ func (m *Manager) fetchWithOptions(urlStr string, opts SubscriptionOptions) ([]b
 	}
 
 	return config.DecodeBase64IfNeeded(data), nil
+}
+
+func validateSubscriptionURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid subscription url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported subscription scheme: %s", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("subscription host is required")
+	}
+	return nil
 }
 
 // applyPreprocess 对订阅内容进行预处理（如解密、解码等）
@@ -244,6 +267,7 @@ func countProxyOutbounds(jsonStr string) int {
 func (m *Manager) Update(id string) (*Subscription, error) {
 	m.mu.RLock()
 	sub, ok := m.subs[id]
+	sub = cloneSubscription(sub)
 	m.mu.RUnlock()
 	if !ok {
 		return m.loadAndUpdate(id)
@@ -255,9 +279,14 @@ func (m *Manager) Update(id string) (*Subscription, error) {
 	}
 
 	m.mu.Lock()
-	sub.SingBoxJSON = singBoxJSON
-	sub.LastUpdate = time.Now()
-	updated := sub
+	stored := m.subs[id]
+	if stored == nil {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("subscription not found: %s", id)
+	}
+	stored.SingBoxJSON = singBoxJSON
+	stored.LastUpdate = time.Now()
+	updated := cloneSubscription(stored)
 	m.mu.Unlock()
 
 	if err := m.Save(updated); err != nil {
@@ -314,15 +343,44 @@ func (m *Manager) Save(sub *Subscription) error {
 		return err
 	}
 
-	if err := os.WriteFile(metaPath, metaData, 0644); err != nil {
+	if err := writeFileAtomic(metaPath, metaData, 0600); err != nil {
 		return err
 	}
 
 	jsonPath := filepath.Join(subDir, sub.ID+"_sing.json")
-	if err := os.WriteFile(jsonPath, []byte(sub.SingBoxJSON), 0644); err != nil {
+	if err := writeFileAtomic(jsonPath, []byte(sub.SingBoxJSON), 0600); err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(path)
+		if err := os.Rename(tmpPath, path); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -401,7 +459,7 @@ func (m *Manager) List() []*Subscription {
 
 	result := make([]*Subscription, 0, len(m.subs))
 	for _, sub := range m.subs {
-		result = append(result, sub)
+		result = append(result, cloneSubscription(sub))
 	}
 	return result
 }
@@ -409,7 +467,7 @@ func (m *Manager) List() []*Subscription {
 func (m *Manager) Get(id string) *Subscription {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.subs[id]
+	return cloneSubscription(m.subs[id])
 }
 
 func (m *Manager) Delete(id string) error {
@@ -431,8 +489,22 @@ func (m *Manager) Replace(sub *Subscription) {
 		return
 	}
 	m.mu.Lock()
-	m.subs[sub.ID] = sub
+	m.subs[sub.ID] = cloneSubscription(sub)
 	m.mu.Unlock()
+}
+
+func cloneSubscription(sub *Subscription) *Subscription {
+	if sub == nil {
+		return nil
+	}
+	cp := *sub
+	if sub.Options.Headers != nil {
+		cp.Options.Headers = make(map[string]string, len(sub.Options.Headers))
+		for k, v := range sub.Options.Headers {
+			cp.Options.Headers[k] = v
+		}
+	}
+	return &cp
 }
 
 // decryptAES256CBC 使用密码派生 key 解密 AES-256-CBC 数据（兼容部分机场加密订阅）

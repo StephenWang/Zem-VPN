@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,11 +20,13 @@ type Service struct {
 	engine *engine.SingBoxEngine
 	server *http.Server
 	mu     sync.Mutex
+	token  string
 }
 
-func New() *Service {
+func New(token string) *Service {
 	return &Service{
 		engine: &engine.SingBoxEngine{},
+		token:  token,
 	}
 }
 
@@ -72,6 +75,9 @@ func (s *Service) Stop() {
 }
 
 func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(w, r) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -80,6 +86,9 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleConnect(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -97,7 +106,8 @@ func (s *Service) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 启动前先清理可能残留的 TUN 适配器
+	// 启动前先停止已运行实例并清理可能残留的 TUN 适配器
+	_ = s.engine.Stop()
 	_ = sys.CleanupWindowsTUN()
 
 	if err := s.engine.Start(req.ConfigJSON); err != nil {
@@ -109,6 +119,9 @@ func (s *Service) handleConnect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleDisconnect(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -119,6 +132,9 @@ func (s *Service) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleCurrentSubID(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(w, r) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -126,34 +142,53 @@ func (s *Service) handleCurrentSubID(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"sub_id": s.engine.GetCurrentSubID()})
 }
 
+func (s *Service) authorize(w http.ResponseWriter, r *http.Request) bool {
+	if s.token == "" {
+		http.Error(w, "service token not configured", http.StatusInternalServerError)
+		return false
+	}
+	got := r.Header.Get("X-Zem-Service-Token")
+	if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
 // Client 用于 GUI 连接后台 Service
 type Client struct {
 	baseURL string
 	client  *http.Client
+	token   string
 }
 
-func NewClient(port int) *Client {
+func NewClient(port int, token string) *Client {
 	return &Client{
 		baseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
 		client:  &http.Client{Timeout: 10 * time.Second},
+		token:   token,
 	}
 }
 
 func (c *Client) reachable() bool {
-	resp, err := c.client.Get(c.baseURL + "/api/status")
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	_, err := c.Status()
+	return err == nil
 }
 
 func (c *Client) Status() (string, error) {
-	resp, err := c.client.Get(c.baseURL + "/api/status")
+	req, err := c.newRequest(http.MethodGet, "/api/status", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("service status failed: %s", string(data))
+	}
 	var result map[string]string
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
@@ -166,7 +201,12 @@ func (c *Client) Connect(configJSON, subID string) error {
 		"config_json": configJSON,
 		"sub_id":      subID,
 	})
-	resp, err := c.client.Post(c.baseURL+"/api/connect", "application/json", bytes.NewReader(body))
+	req, err := c.newRequest(http.MethodPost, "/api/connect", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -179,7 +219,11 @@ func (c *Client) Connect(configJSON, subID string) error {
 }
 
 func (c *Client) Disconnect() error {
-	resp, err := c.client.Post(c.baseURL+"/api/disconnect", "application/json", nil)
+	req, err := c.newRequest(http.MethodPost, "/api/disconnect", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -192,14 +236,31 @@ func (c *Client) Disconnect() error {
 }
 
 func (c *Client) GetCurrentSubID() (string, error) {
-	resp, err := c.client.Get(c.baseURL + "/api/current-sub-id")
+	req, err := c.newRequest(http.MethodGet, "/api/current-sub-id", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("service current-sub-id failed: %s", string(data))
+	}
 	var result map[string]string
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
 	return result["sub_id"], nil
+}
+
+func (c *Client) newRequest(method, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, c.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Zem-Service-Token", c.token)
+	return req, nil
 }

@@ -5,7 +5,9 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,6 +28,83 @@ import (
 	"zem/internal/sys"
 )
 
+const (
+	geositeCNURL  = "https://github.com/aleskxyz/sing-box-rules/releases/download/202607060934/geosite-cn.srs"
+	geoipCNURL    = "https://github.com/aleskxyz/sing-box-rules/releases/download/202607060934/geoip-cn.srs"
+	maxRuleSetAge = 7 * 24 * time.Hour
+)
+
+// ensureChinaRuleSets 检查并预下载中国大陆 rule-set 文件到 dataDir/rule-set
+func (a *App) ensureChinaRuleSets() error {
+	rsDir := filepath.Join(a.dataDir, "rule-set")
+	if err := os.MkdirAll(rsDir, 0755); err != nil {
+		return err
+	}
+	for _, u := range []string{geositeCNURL, geoipCNURL} {
+		name := filepath.Base(u)
+		path := filepath.Join(rsDir, name)
+		fi, err := os.Stat(path)
+		if err == nil && time.Since(fi.ModTime()) < maxRuleSetAge {
+			continue
+		}
+		if err := downloadFile(u, path); err != nil {
+			return fmt.Errorf("download %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func downloadFile(url, path string) error {
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("http %d", resp.StatusCode)
+	}
+	tmp := path + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(f, resp.Body)
+	_ = f.Close()
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func chinaRemoteRuleSets() []config.RuleSet {
+	return []config.RuleSet{
+		{Type: "remote", Tag: "geosite-cn", Format: "binary", URL: geositeCNURL},
+		{Type: "remote", Tag: "geoip-cn", Format: "binary", URL: geoipCNURL},
+	}
+}
+
+func mergeRuleSets(existing []config.RuleSet, extra []config.RuleSet) []config.RuleSet {
+	merged := make([]config.RuleSet, 0, len(existing)+len(extra))
+	seen := make(map[string]bool, len(existing)+len(extra))
+	for _, rs := range existing {
+		if rs.Tag == "" || seen[rs.Tag] {
+			continue
+		}
+		merged = append(merged, rs)
+		seen[rs.Tag] = true
+	}
+	for _, rs := range extra {
+		if rs.Tag == "" || seen[rs.Tag] {
+			continue
+		}
+		merged = append(merged, rs)
+		seen[rs.Tag] = true
+	}
+	return merged
+}
+
 //go:embed all:frontend/dist
 var assets embed.FS
 
@@ -36,6 +115,7 @@ type App struct {
 	subManager     *subscription.Manager
 	profileManager *profile.Manager
 	settings       *settings.Manager
+	speedCache     *settings.SpeedTestCache
 	dataDir        string
 	mu             sync.Mutex
 }
@@ -48,6 +128,7 @@ func NewApp() *App {
 		subManager:     subscription.NewManager(dataDir),
 		profileManager: profile.NewManager(dataDir),
 		settings:       sm,
+		speedCache:     settings.NewSpeedTestCache(dataDir),
 		dataDir:        dataDir,
 	}
 	app.initServiceClient()
@@ -66,7 +147,7 @@ func (a *App) initServiceClient() {
 		a.serviceClient = nil
 		return
 	}
-	client := service.NewClient(a.settings.GetServicePort())
+	client := service.NewClient(a.settings.GetServicePort(), a.settings.GetServiceToken())
 	if _, err := client.Status(); err != nil {
 		a.serviceClient = nil
 		return
@@ -156,6 +237,15 @@ func (a *App) Shutdown(ctx context.Context) {
 	_ = a.applyPlatformConnection(false)
 	cleanupPlatform()
 	a.engine.Stop()
+
+	// 如果以服务方式运行 sing-box 核心，关闭程序时停止服务
+	if runtime.GOOS == "windows" {
+		if sys.IsServiceRunning() {
+			if err := sys.StopZemService(); err != nil {
+				fmt.Println("stop service on shutdown:", err)
+			}
+		}
+	}
 }
 
 // initPlatform 平台特定初始化
@@ -312,6 +402,24 @@ func (a *App) ConnectSubscription(subID string) error {
 		return fmt.Errorf("prepare config: %w", err)
 	}
 
+	// 如果用户没有手动选择过节点，尝试使用测速缓存中的最优节点
+	if a.settings.GetSelectedNode(sub.ID) == "" {
+		if best := a.speedCache.BestNode(sub.ID); best != "" {
+			if err := a.selectServerInternal(sub.ID, best); err == nil {
+				_ = a.settings.SetSelectedNode(sub.ID, best)
+				// 重新 prepareConfig 以应用选择
+				configJSON, err = a.prepareConfig(sub.SingBoxJSON, sub.ID)
+				if err != nil {
+					return fmt.Errorf("prepare config after auto select: %w", err)
+				}
+			}
+		}
+	}
+
+	// 先停止已有引擎，避免 mixed/tun 入站端口冲突
+	_ = a.engine.Stop()
+	_ = a.applyPlatformConnection(false)
+
 	// 平台特定连接前配置
 	if err := a.applyPlatformConnection(true); err != nil {
 		return fmt.Errorf("setup platform connection: %w", err)
@@ -418,6 +526,16 @@ func (a *App) prepareConfig(configJSON, subID string) (string, error) {
 	// 直连模式：所有流量走 direct
 	if mode == "direct" {
 		cfg.Route.Final = "direct"
+	} else if mode == "rule" {
+		// rule 模式：加载中国大陆 rule-set，大陆流量直连，其余走代理
+		if err := a.ensureChinaRuleSets(); err != nil {
+			fmt.Println("ensure china rule-sets:", err)
+		}
+		cfg.Route.RuleSet = mergeRuleSets(cfg.Route.RuleSet, chinaRemoteRuleSets())
+		cfg.Route.Rules = append([]config.RouteRule{
+			{Action: "route", Outbound: "direct", Rule: config.Rule{RuleSet: []string{"geosite-cn"}}},
+			{Action: "route", Outbound: "direct", Rule: config.Rule{RuleSet: []string{"geoip-cn"}}},
+		}, cfg.Route.Rules...)
 	}
 
 	// 收集所有代理 outbound tag 并修复 selector/urltest 的 default
@@ -460,39 +578,60 @@ func (a *App) prepareConfig(configJSON, subID string) (string, error) {
 		}
 	}
 
-	// 添加 selected 选择器，默认指向第一个代理；若用户已选择节点则保留
+	// 确保存在一个可用的 selector 作为路由默认出口
 	if len(proxyTags) > 0 {
-		selectedIdx := -1
-		selectedDefault := ""
+		// 查找已有的 selector，优先使用 tag 为 selected / select / auto 的
+		existingSelectorIdx := -1
 		for i, out := range cfg.Outbounds {
-			if out.Type == "selector" && out.Tag == "selected" {
-				selectedIdx = i
-				selectedDefault = out.Default
-				break
-			}
-		}
-		defaultSelected := proxyTags[0]
-		if selectedDefault != "" {
-			for _, tag := range proxyTags {
-				if tag == selectedDefault {
-					defaultSelected = selectedDefault
+			if out.Type == "selector" {
+				existingSelectorIdx = i
+				if out.Tag == "selected" {
 					break
 				}
 			}
 		}
-		selectedOutbound := config.Outbound{
-			Type:      "selector",
-			Tag:       "selected",
-			Outbounds: proxyTags,
-			Default:   defaultSelected,
+
+		// 计算 selector 的 default：优先用用户当前选中的节点，其次保留原 selector 的 default，最后使用第一个代理
+		defaultSelected := proxyTags[0]
+		currentSelected := ""
+		if subID != "" && !strings.HasPrefix(subID, "profile:") {
+			currentSelected = a.settings.GetSelectedNode(subID)
 		}
-		if selectedIdx >= 0 {
-			cfg.Outbounds[selectedIdx] = selectedOutbound
+		if currentSelected == "" && existingSelectorIdx >= 0 {
+			currentSelected = cfg.Outbounds[existingSelectorIdx].Default
+		}
+		if currentSelected != "" {
+			for _, tag := range proxyTags {
+				if tag == currentSelected {
+					defaultSelected = currentSelected
+					break
+				}
+			}
+		}
+
+		if existingSelectorIdx >= 0 {
+			// 复用已有 selector，确保它包含所有代理并指向有效的 default
+			cfg.Outbounds[existingSelectorIdx].Outbounds = proxyTags
+			cfg.Outbounds[existingSelectorIdx].Default = defaultSelected
+			existingTags[cfg.Outbounds[existingSelectorIdx].Tag] = true
 		} else {
-			cfg.Outbounds = append(cfg.Outbounds, selectedOutbound)
+			cfg.Outbounds = append(cfg.Outbounds, config.Outbound{
+				Type:      "selector",
+				Tag:       "selected",
+				Outbounds: proxyTags,
+				Default:   defaultSelected,
+			})
+			existingTags["selected"] = true
 		}
+
+		// 强制 route.final 指向一个存在的 selector
 		if cfg.Route.Final == "" || !existingTags[cfg.Route.Final] {
-			cfg.Route.Final = "selected"
+			for _, out := range cfg.Outbounds {
+				if out.Type == "selector" {
+					cfg.Route.Final = out.Tag
+					break
+				}
+			}
 		}
 	}
 
@@ -688,7 +827,52 @@ func (a *App) GetServers(subID string) ([]map[string]interface{}, error) {
 	return servers, nil
 }
 
-// SelectServer 选择指定服务器作为当前代
+// selectServerInternal 更新 selector default 但不持久化用户选择、不重连引擎
+func (a *App) selectServerInternal(subID, serverTag string) error {
+	sub := a.subManager.Get(subID)
+	if sub == nil {
+		return fmt.Errorf("subscription not found: %s", subID)
+	}
+	if sub.SingBoxJSON == "" {
+		return fmt.Errorf("config not ready")
+	}
+
+	var cfg config.SingBoxConfig
+	if err := json.Unmarshal([]byte(sub.SingBoxJSON), &cfg); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+
+	found := false
+	for _, out := range cfg.Outbounds {
+		if out.Tag == serverTag {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("server not found: %s", serverTag)
+	}
+
+	for i := range cfg.Outbounds {
+		if cfg.Outbounds[i].Type == "selector" && cfg.Outbounds[i].Tag == "selected" {
+			cfg.Outbounds[i].Default = serverTag
+		}
+	}
+	cfg.Route.Final = "selected"
+
+	updated, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	sub.SingBoxJSON = string(updated)
+	if err := a.subManager.Save(sub); err != nil {
+		return err
+	}
+	a.subManager.Replace(sub)
+	return nil
+}
+
+// SelectServer 选择指定服务器作为当前代理
 func (a *App) SelectServer(subID, serverTag string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -734,6 +918,11 @@ func (a *App) SelectServer(subID, serverTag string) error {
 		return err
 	}
 	a.subManager.Replace(sub)
+
+	// 持久化用户选择，供 prepareConfig 后续使用
+	if err := a.settings.SetSelectedNode(subID, serverTag); err != nil {
+		return fmt.Errorf("save selected node: %w", err)
+	}
 
 	// 如果当前正在使用该订阅，则重新连接
 	if a.engine.GetCurrentSubID() == subID {
@@ -831,55 +1020,19 @@ func (a *App) SelectGroup(subID, groupTag string) error {
 	return nil
 }
 
-// SpeedTestNode 对订阅内单个节点进行延迟测试
 func (a *App) SpeedTestNode(subID, nodeTag string) (int64, error) {
-	sub := a.subManager.Get(subID)
-	if sub == nil {
-		return 0, fmt.Errorf("subscription not found: %s", subID)
-	}
-	if sub.SingBoxJSON == "" {
-		return 0, fmt.Errorf("config not ready")
-	}
-
-	var cfg config.SingBoxConfig
-	if err := json.Unmarshal([]byte(sub.SingBoxJSON), &cfg); err != nil {
-		return 0, fmt.Errorf("parse config: %w", err)
-	}
-
-	proxyTypeSet := make(map[string]bool)
-	for _, t := range config.ProxyTypes {
-		proxyTypeSet[t] = true
-	}
-
-	var targetOut *config.Outbound
-	for i := range cfg.Outbounds {
-		if cfg.Outbounds[i].Tag == nodeTag && proxyTypeSet[cfg.Outbounds[i].Type] {
-			targetOut = &cfg.Outbounds[i]
-			break
-		}
-	}
-	if targetOut == nil {
-		return 0, fmt.Errorf("node not found: %s", nodeTag)
-	}
-
-	const testTarget = "1.1.1.1"
-	if a.engine.Status() == "connected" {
-		return a.engine.SpeedTest(nodeTag, testTarget)
-	}
-
-	addr := net.JoinHostPort(targetOut.Server, fmt.Sprintf("%d", targetOut.ServerPort))
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	results, err := a.SpeedTestNodes(subID, []string{nodeTag})
 	if err != nil {
-		return -1, nil
+		return -1, err
 	}
-	conn.Close()
-	return time.Since(start).Milliseconds(), nil
+	ms, ok := results[nodeTag]
+	if !ok {
+		return -1, fmt.Errorf("node not found: %s", nodeTag)
+	}
+	return ms, nil
 }
 
-// SpeedTest 对订阅内服务器进行延迟测试
-// 如果 sing-box 引擎正在运行，会通过各个 outbound 代理拨测固定目标（更真实）；
-// 否则退化为直接 TCP 拨测节点地址
+// SpeedTest 对订阅内所有代理节点进行并发延迟测试。
 func (a *App) SpeedTest(subID string) (map[string]int64, error) {
 	sub := a.subManager.Get(subID)
 	if sub == nil {
@@ -899,43 +1052,109 @@ func (a *App) SpeedTest(subID string) (map[string]int64, error) {
 		proxyTypeSet[t] = true
 	}
 
-	const testTarget = "1.1.1.1"
-	results := make(map[string]int64)
-
-	// 优先使用引擎 outbound 测
-	if a.engine.Status() == "connected" {
-		for _, out := range cfg.Outbounds {
-			if !proxyTypeSet[out.Type] || out.Tag == "" {
-				continue
-			}
-			ms, err := a.engine.SpeedTest(out.Tag, testTarget)
-			if err != nil {
-				results[out.Tag] = -1
-				continue
-			}
-			results[out.Tag] = ms
+	var tags []string
+	for _, out := range cfg.Outbounds {
+		if proxyTypeSet[out.Type] && out.Tag != "" {
+			tags = append(tags, out.Tag)
 		}
-		return results, nil
+	}
+	return a.SpeedTestNodes(subID, tags)
+}
+
+// SpeedTestNodes 对指定节点标签列表进行并发延迟测试，未连接时直接 TCP 拨测节点地址。
+func (a *App) SpeedTestNodes(subID string, nodeTags []string) (map[string]int64, error) {
+	sub := a.subManager.Get(subID)
+	if sub == nil {
+		return nil, fmt.Errorf("subscription not found: %s", subID)
+	}
+	if sub.SingBoxJSON == "" {
+		return nil, fmt.Errorf("config not ready")
 	}
 
-	// 未连接时退化为直接 TCP 拨测
+	var cfg config.SingBoxConfig
+	if err := json.Unmarshal([]byte(sub.SingBoxJSON), &cfg); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	proxyTypeSet := make(map[string]bool)
+	for _, t := range config.ProxyTypes {
+		proxyTypeSet[t] = true
+	}
+
+	outboundMap := make(map[string]config.Outbound)
 	for _, out := range cfg.Outbounds {
-		if out.Server == "" || out.ServerPort == 0 {
+		outboundMap[out.Tag] = out
+	}
+
+	const (
+		testTarget = "1.1.1.1"
+		maxWorkers = 20
+	)
+
+	type job struct {
+		tag string
+		out config.Outbound
+	}
+
+	var jobs []job
+	for _, tag := range nodeTags {
+		out, ok := outboundMap[tag]
+		if !ok || !proxyTypeSet[out.Type] {
 			continue
 		}
-		if proxyTypeSet[out.Type] {
-			addr := net.JoinHostPort(out.Server, fmt.Sprintf("%d", out.ServerPort))
-			start := time.Now()
-			conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
-			if err != nil {
-				results[out.Tag] = -1
-				continue
-			}
-			conn.Close()
-			results[out.Tag] = time.Since(start).Milliseconds()
-		}
+		jobs = append(jobs, job{tag: tag, out: out})
 	}
+
+	results := make(map[string]int64)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	connected := a.engine.Status() == "connected"
+
+	semaphore := make(chan struct{}, maxWorkers)
+	for _, j := range jobs {
+		wg.Add(1)
+		go func(j job) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			var ms int64 = -1
+			if connected {
+				if r, err := a.engine.SpeedTest(j.tag, testTarget); err == nil {
+					ms = r
+				}
+			} else {
+				addr := net.JoinHostPort(j.out.Server, fmt.Sprintf("%d", j.out.ServerPort))
+				start := time.Now()
+				conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+				if err == nil {
+					conn.Close()
+					ms = time.Since(start).Milliseconds()
+				}
+			}
+
+			mu.Lock()
+			results[j.tag] = ms
+			mu.Unlock()
+		}(j)
+	}
+	wg.Wait()
+
+	// 持久化测速结果，供下次自动选择最优节点使用
+	_ = a.speedCache.Set(subID, results)
+
 	return results, nil
+}
+
+// GetSpeedTestCache 返回指定订阅的测速缓存结果
+func (a *App) GetSpeedTestCache(subID string) (map[string]int64, error) {
+	return a.speedCache.Get(subID), nil
+}
+
+// ClearSpeedTestCache 清除指定订阅的测速缓存
+func (a *App) ClearSpeedTestCache(subID string) error {
+	return a.speedCache.Clear(subID)
 }
 
 // GetTrafficStats 返回当前 tun-in 的总上?下行流量（字节）
@@ -1018,6 +1237,14 @@ func (a *App) ConnectProfile(profileID string) error {
 	if !sys.CheckAdmin() {
 		return fmt.Errorf("需要管理员权限")
 	}
+
+	if err := a.applyPlatformConnection(true); err != nil {
+		return fmt.Errorf("setup platform connection: %w", err)
+	}
+
+	// 先停止已有引擎，避免 mixed/tun 入站端口冲突
+	_ = a.engine.Stop()
+	_ = a.applyPlatformConnection(false)
 
 	if err := a.applyPlatformConnection(true); err != nil {
 		return fmt.Errorf("setup platform connection: %w", err)
@@ -1261,6 +1488,10 @@ func (a *App) GetCurrentSubscriptionID() string {
 	return a.engine.GetCurrentSubID()
 }
 
+func (a *App) GetSelectedNode(subID string) string {
+	return a.settings.GetSelectedNode(subID)
+}
+
 func (a *App) IsAdmin() bool {
 	return sys.CheckAdmin()
 }
@@ -1337,7 +1568,7 @@ func runServiceMode() {
 	sm := settings.NewManager(dataDir)
 	port := sm.GetServicePort()
 
-	svc := service.New()
+	svc := service.New(sm.GetServiceToken())
 	runner := &sys.ServiceRunner{
 		OnStart: func() error {
 			return svc.Start(port)

@@ -52,6 +52,8 @@ const toggle = () => {
   emit('update:modelValue', isCollapsed.value)
 }
 
+const BREAKPOINT = 768
+
 const handleResize = () => {
   if (window.innerWidth < BREAKPOINT) {
     isCollapsed.value = true

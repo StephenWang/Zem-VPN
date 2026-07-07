@@ -79,7 +79,7 @@ func convertClashConfig(clash *ClashConfig) (string, error) {
 			},
 		},
 		Outbounds: append(buildOutbounds(clash.Proxies), buildGroupOutbounds(clash.ProxyGroups)...),
-		Route:     buildRoute(clash.Rules, clash.ProxyGroups),
+		Route:     buildRouteWithRuleProviders(clash.Rules, clash.RuleProviders),
 	}
 
 	result, err := json.MarshalIndent(sb, "", "  ")
@@ -199,8 +199,9 @@ func ConvertSSURLListToSingBox(data []byte) (string, error) {
 
 // parseSSURL 解析单个 ss:// 链接。
 // 支持格式：
-//   ss://base64(method:password@server:port)#name
-//   ss://method:password@server:port#name
+//
+//	ss://base64(method:password@server:port)#name
+//	ss://method:password@server:port#name
 func parseSSURL(line string) (Outbound, error) {
 	body := strings.TrimPrefix(line, "ss://")
 
