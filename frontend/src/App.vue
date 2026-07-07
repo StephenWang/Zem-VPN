@@ -51,7 +51,7 @@
         </div>
 
         <router-view v-slot="{ Component }">
-          <keep-alive include="Servers">
+          <keep-alive include="Servers,Subscriptions">
             <component :is="Component" @error="showError" @success="showSuccess" />
           </keep-alive>
         </router-view>
@@ -94,6 +94,8 @@ const proxyMode = ref('rule')
 
 let lastUp = 0
 let lastDown = 0
+let statusTimer = null
+let trafficTimer = null
 
 const currentTitle = computed(() => {
   return route.name || 'Zem'
@@ -114,12 +116,13 @@ onMounted(async () => {
   platformInfo.value = await GetPlatformInfo()
   proxyMode.value = await GetProxyMode()
   await refreshStatus()
-  const statusTimer = setInterval(refreshStatus, 2000)
-  const trafficTimer = setInterval(refreshTraffic, 1000)
-  onUnmounted(() => {
-    clearInterval(statusTimer)
-    clearInterval(trafficTimer)
-  })
+  statusTimer = setInterval(refreshStatus, 2000)
+  trafficTimer = setInterval(refreshTraffic, 1000)
+})
+
+onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer)
+  if (trafficTimer) clearInterval(trafficTimer)
 })
 
 const refreshStatus = async () => {

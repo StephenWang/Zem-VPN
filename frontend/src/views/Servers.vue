@@ -88,6 +88,7 @@ const sortBy = ref('default')
 const speedTestAbort = ref(false)
 
 const pingCache = ref({})
+let activatedOnce = false
 
 const emit = defineEmits(['error', 'success'])
 const route = useRoute()
@@ -315,7 +316,6 @@ const abortSpeedTest = () => {
 }
 
 onMounted(() => {
-  loadServers(false)
 })
 
 onActivated(() => {
@@ -323,8 +323,21 @@ onActivated(() => {
   refreshConnectionState()
 })
 
+onActivated(async () => {
+  if (!activatedOnce) {
+    activatedOnce = true
+    await loadServers(false)
+    return
+  }
+  await refreshConnectionState()
+})
+
 onDeactivated(() => {
   // 离开 Servers 页面时终止正在进行的测速
+  abortSpeedTest()
+})
+
+onDeactivated(() => {
   abortSpeedTest()
 })
 

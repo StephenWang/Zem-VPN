@@ -199,7 +199,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated } from 'vue'
 import {
   AddSubscription,
   AddSubscriptionWithOptions,
@@ -258,6 +258,8 @@ const editProfileData = ref({
 })
 
 const emit = defineEmits(['error', 'success'])
+let statusTimer = null
+let activatedOnce = false
 
 const showError = (msg) => emit('error', msg)
 const showSuccess = (msg) => emit('success', msg)
@@ -347,8 +349,7 @@ const connect = async (id) => {
     status.value = 'connected'
     showSuccess('连接成功')
   } catch (e) {
-    currentSub.value = ''
-    status.value = 'disconnected'
+    await refreshStatus()
     showError('连接失败: ' + e)
   }
 }
@@ -364,8 +365,7 @@ const connectProfile = async (id) => {
     status.value = 'connected'
     showSuccess('Profile 连接成功')
   } catch (e) {
-    currentSub.value = ''
-    status.value = 'disconnected'
+    await refreshStatus()
     showError('Profile 连接失败: ' + e)
   }
 }
@@ -494,13 +494,28 @@ const deleteProfile = async (id) => {
   }
 }
 
-onMounted(async () => {
-  isAdmin.value = await IsAdmin()
+const refreshPageState = async () => {
   await refreshList()
   await refreshProfiles()
   await refreshStatus()
-  const timer = setInterval(refreshStatus, 2000)
-  onUnmounted(() => clearInterval(timer))
+}
+
+onMounted(async () => {
+  isAdmin.value = await IsAdmin()
+  await refreshPageState()
+  statusTimer = setInterval(refreshStatus, 2000)
+})
+
+onActivated(async () => {
+  if (!activatedOnce) {
+    activatedOnce = true
+    return
+  }
+  await refreshPageState()
+})
+
+onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer)
 })
 </script>
 

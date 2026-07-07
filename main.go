@@ -582,9 +582,11 @@ func (a *App) prepareConfig(configJSON, subID string) (string, error) {
 	if len(proxyTags) > 0 {
 		// 查找已有的 selector，优先使用 tag 为 selected / select / auto 的
 		existingSelectorIdx := -1
+		routeSelectorTag := "selected"
 		for i, out := range cfg.Outbounds {
 			if out.Type == "selector" {
 				existingSelectorIdx = i
+				routeSelectorTag = out.Tag
 				if out.Tag == "selected" {
 					break
 				}
@@ -613,7 +615,8 @@ func (a *App) prepareConfig(configJSON, subID string) (string, error) {
 			// 复用已有 selector，确保它包含所有代理并指向有效的 default
 			cfg.Outbounds[existingSelectorIdx].Outbounds = proxyTags
 			cfg.Outbounds[existingSelectorIdx].Default = defaultSelected
-			existingTags[cfg.Outbounds[existingSelectorIdx].Tag] = true
+			routeSelectorTag = cfg.Outbounds[existingSelectorIdx].Tag
+			existingTags[routeSelectorTag] = true
 		} else {
 			cfg.Outbounds = append(cfg.Outbounds, config.Outbound{
 				Type:      "selector",
@@ -622,6 +625,10 @@ func (a *App) prepareConfig(configJSON, subID string) (string, error) {
 				Default:   defaultSelected,
 			})
 			existingTags["selected"] = true
+		}
+
+		if mode != "direct" {
+			cfg.Route.Final = routeSelectorTag
 		}
 
 		// 强制 route.final 指向一个存在的 selector

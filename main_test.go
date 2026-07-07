@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sagernet/sing-box/include"
@@ -55,6 +57,47 @@ func TestFixLegacyDNS(t *testing.T) {
 	_, err = singjson.UnmarshalExtendedContext[option.Options](ctx, out)
 	if err != nil {
 		t.Fatalf("parse fixed config: %v", err)
+	}
+}
+
+func TestPrepareConfigRuleModeForcesProxyFinal(t *testing.T) {
+	dataDir := t.TempDir()
+	app := &App{
+		settings: settings.NewManager(dataDir),
+		dataDir:  dataDir,
+	}
+
+	ruleSetDir := filepath.Join(dataDir, "rule-set")
+	if err := os.MkdirAll(ruleSetDir, 0755); err != nil {
+		t.Fatalf("create rule-set dir: %v", err)
+	}
+	for _, name := range []string{"geosite-cn.srs", "geoip-cn.srs"} {
+		if err := os.WriteFile(filepath.Join(ruleSetDir, name), []byte("test"), 0644); err != nil {
+			t.Fatalf("write rule-set: %v", err)
+		}
+	}
+
+	configJSON := `{
+  "inbounds": [],
+  "outbounds": [
+    {"type":"trojan","tag":"node1","server":"1.1.1.1","server_port":443,"password":"pw"},
+    {"type":"direct","tag":"direct"},
+    {"type":"block","tag":"block"}
+  ],
+  "route": {"final":"direct","rules":[]}
+}`
+
+	prepared, err := app.prepareConfig(configJSON, "sub1")
+	if err != nil {
+		t.Fatalf("prepare config: %v", err)
+	}
+
+	var cfg config.SingBoxConfig
+	if err := json.Unmarshal([]byte(prepared), &cfg); err != nil {
+		t.Fatalf("unmarshal prepared: %v", err)
+	}
+	if cfg.Route.Final != "selected" {
+		t.Fatalf("rule mode should force final to selected, got %s", cfg.Route.Final)
 	}
 }
 
