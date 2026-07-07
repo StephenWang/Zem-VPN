@@ -170,9 +170,8 @@ func (a *App) UpdateSubscription(subID string) error {
 }
 
 func (a *App) DeleteSubscription(subID string) error {
-	if a.connMgr.CurrentSubID() == subID {
+	if a.GetCurrentSubscriptionID() == subID {
 		_ = a.connMgr.Disconnect()
-		_ = a.settings.SetCurrentSubID("")
 	}
 	return a.subManager.Delete(subID)
 }
@@ -205,15 +204,18 @@ func (a *App) GetSubscriptionConfig(subID string) string {
 	return sub.SingBoxJSON
 }
 
+// GetServers 返回订阅中的服务器列表
 func (a *App) GetServers(subID string) ([]map[string]interface{}, error) {
 	cfg, _, err := a.parseSubConfig(subID)
 	if err != nil {
 		return nil, err
 	}
+
 	proxyTypeSet := make(map[string]bool)
 	for _, t := range config.ProxyTypes {
 		proxyTypeSet[t] = true
 	}
+
 	servers := make([]map[string]interface{}, 0)
 	for _, out := range cfg.Outbounds {
 		if proxyTypeSet[out.Type] {
@@ -229,15 +231,18 @@ func (a *App) GetServers(subID string) ([]map[string]interface{}, error) {
 	return servers, nil
 }
 
+// SelectServer 选择指定服务器作为当前代理
 func (a *App) SelectServer(subID, serverTag string) error {
 	return a.connMgr.SelectServer(a.ctx, subID, serverTag)
 }
 
+// GetGroups 返回订阅中的代理分组（selector/urltest）
 func (a *App) GetGroups(subID string) ([]map[string]interface{}, error) {
 	cfg, _, err := a.parseSubConfig(subID)
 	if err != nil {
 		return nil, err
 	}
+
 	groups := make([]map[string]interface{}, 0)
 	for _, out := range cfg.Outbounds {
 		if out.Type == "selector" || out.Type == "urltest" {
@@ -252,6 +257,7 @@ func (a *App) GetGroups(subID string) ([]map[string]interface{}, error) {
 	return groups, nil
 }
 
+// SelectGroup 切换当前使用的代理分组
 func (a *App) SelectGroup(subID, groupTag string) error {
 	return a.connMgr.SelectGroup(a.ctx, subID, groupTag)
 }
@@ -268,22 +274,36 @@ func (a *App) SpeedTestNode(subID, nodeTag string) (int64, error) {
 	return ms, nil
 }
 
+// SpeedTest 对订阅内所有代理节点进行并发延迟测试
 func (a *App) SpeedTest(subID string) (map[string]int64, error) {
-	return a.connMgr.SpeedTest(a.ctx, subID)
+	ctx := a.connMgr.StartSpeedTest(a.ctx)
+	defer a.connMgr.StopSpeedTest()
+	return a.connMgr.SpeedTest(ctx, subID)
 }
 
+// SpeedTestNodes 对指定节点标签列表进行并发延迟测试
 func (a *App) SpeedTestNodes(subID string, nodeTags []string) (map[string]int64, error) {
-	return a.connMgr.SpeedTestNodes(a.ctx, subID, nodeTags)
+	ctx := a.connMgr.StartSpeedTest(a.ctx)
+	defer a.connMgr.StopSpeedTest()
+	return a.connMgr.SpeedTestNodes(ctx, subID, nodeTags)
 }
 
+// AbortSpeedTest 取消当前正在进行的测速
+func (a *App) AbortSpeedTest() {
+	a.connMgr.CancelSpeedTest()
+}
+
+// GetSpeedTestCache 返回指定订阅的测速缓存结果
 func (a *App) GetSpeedTestCache(subID string) (map[string]int64, error) {
 	return a.speedCache.Get(subID), nil
 }
 
+// ClearSpeedTestCache 清除指定订阅的测速缓存
 func (a *App) ClearSpeedTestCache(subID string) error {
 	return a.speedCache.Clear(subID)
 }
 
+// GetTrafficStats 返回当前 tun-in 的总上/下行流量（字节）
 func (a *App) GetTrafficStats() (map[string]int64, error) {
 	return a.connMgr.TrafficStats(a.ctx)
 }
@@ -500,11 +520,11 @@ func guessCountry(tag string) string {
 		"uk": "英国", "britain": "英国", "英国": "英国",
 		"de": "德国", "germany": "德国", "德国": "德国",
 		"fr": "法国", "france": "法国", "法国": "法国",
-		"au": "澳大利亚", "australia": "澳大利亚", "澳大利亚": "澳大利亚",
-		"ca": "加拿大", "canada": "加拿大", "加拿大": "加拿大",
 		"ru": "俄罗斯", "russia": "俄罗斯", "俄罗斯": "俄罗斯",
+		"ca": "加拿大", "canada": "加拿大", "加拿大": "加拿大",
+		"au": "澳大利亚", "australia": "澳大利亚", "澳大利亚": "澳大利亚",
 		"in": "印度", "india": "印度", "印度": "印度",
-		"br": "巴西", "brazil": "巴西", "巴西": "巴西",
+		"nl": "荷兰", "netherlands": "荷兰", "荷兰": "荷兰",
 	}
 	var keys []string
 	for k := range countryMap {
