@@ -42,6 +42,10 @@ func (s *Service) Start(port int) error {
 	mux.HandleFunc("/api/connect", s.handleConnect)
 	mux.HandleFunc("/api/disconnect", s.handleDisconnect)
 	mux.HandleFunc("/api/current-sub-id", s.handleCurrentSubID)
+	mux.HandleFunc("/api/traffic-stats", s.handleTrafficStats)
+	mux.HandleFunc("/api/set-proxy-mode", s.handleSetProxyMode)
+	mux.HandleFunc("/api/select-server", s.handleSelectServer)
+	mux.HandleFunc("/api/select-group", s.handleSelectGroup)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	s.server = &http.Server{
@@ -79,10 +83,10 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": s.engine.Status()})
+	respondJSON(w, http.StatusOK, map[string]string{"status": s.engine.Status()})
 }
 
 func (s *Service) handleConnect(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +94,7 @@ func (s *Service) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 	var req struct {
@@ -98,11 +102,11 @@ func (s *Service) handleConnect(w http.ResponseWriter, r *http.Request) {
 		SubID      string `json:"sub_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	if req.ConfigJSON == "" {
-		http.Error(w, "config_json required", http.StatusBadRequest)
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "config_json required"})
 		return
 	}
 
@@ -111,11 +115,11 @@ func (s *Service) handleConnect(w http.ResponseWriter, r *http.Request) {
 	_ = sys.CleanupWindowsTUN()
 
 	if err := s.engine.Start(req.ConfigJSON); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	s.engine.SetCurrentSubID(req.SubID)
-	w.WriteHeader(http.StatusOK)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "connected"})
 }
 
 func (s *Service) handleDisconnect(w http.ResponseWriter, r *http.Request) {
@@ -123,12 +127,12 @@ func (s *Service) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 	_ = s.engine.Stop()
 	_ = sys.CleanupWindowsTUN()
-	w.WriteHeader(http.StatusOK)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "disconnected"})
 }
 
 func (s *Service) handleCurrentSubID(w http.ResponseWriter, r *http.Request) {
@@ -136,10 +140,70 @@ func (s *Service) handleCurrentSubID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		respondJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]string{"sub_id": s.engine.GetCurrentSubID()})
+	respondJSON(w, http.StatusOK, map[string]string{"sub_id": s.engine.GetCurrentSubID()})
+}
+
+func (s *Service) handleTrafficStats(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		respondJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	up, down, err := s.engine.GetTrafficStats()
+	if err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]int64{"up": up, "down": down})
+}
+
+func (s *Service) handleSetProxyMode(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		respondJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var req struct {
+		ConfigJSON string `json:"config_json"`
+		SubID      string `json:"sub_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if req.ConfigJSON == "" {
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "config_json required"})
+		return
+	}
+	_ = s.engine.Stop()
+	_ = sys.CleanupWindowsTUN()
+	if err := s.engine.Start(req.ConfigJSON); err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.engine.SetCurrentSubID(req.SubID)
+	respondJSON(w, http.StatusOK, map[string]string{"status": "connected"})
+}
+
+func (s *Service) handleSelectServer(w http.ResponseWriter, r *http.Request) {
+	s.handleSetProxyMode(w, r)
+}
+
+func (s *Service) handleSelectGroup(w http.ResponseWriter, r *http.Request) {
+	s.handleSetProxyMode(w, r)
+}
+
+func respondJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func (s *Service) authorize(w http.ResponseWriter, r *http.Request) bool {
@@ -176,21 +240,8 @@ func (c *Client) reachable() bool {
 }
 
 func (c *Client) Status() (string, error) {
-	req, err := c.newRequest(http.MethodGet, "/api/status", nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("service status failed: %s", string(data))
-	}
 	var result map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := c.doRequest(http.MethodGet, "/api/status", nil, &result); err != nil {
 		return "", err
 	}
 	return result["status"], nil
@@ -201,59 +252,58 @@ func (c *Client) Connect(configJSON, subID string) error {
 		"config_json": configJSON,
 		"sub_id":      subID,
 	})
-	req, err := c.newRequest(http.MethodPost, "/api/connect", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("service connect failed: %s", string(data))
-	}
-	return nil
+	return c.doRequest(http.MethodPost, "/api/connect", bytes.NewReader(body), nil)
 }
 
 func (c *Client) Disconnect() error {
-	req, err := c.newRequest(http.MethodPost, "/api/disconnect", nil)
-	if err != nil {
-		return err
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("service disconnect failed: %s", string(data))
-	}
-	return nil
+	return c.doRequest(http.MethodPost, "/api/disconnect", nil, nil)
 }
 
 func (c *Client) GetCurrentSubID() (string, error) {
-	req, err := c.newRequest(http.MethodGet, "/api/current-sub-id", nil)
-	if err != nil {
+	var result map[string]string
+	if err := c.doRequest(http.MethodGet, "/api/current-sub-id", nil, &result); err != nil {
 		return "", err
+	}
+	return result["sub_id"], nil
+}
+
+func (c *Client) TrafficStats() (map[string]int64, error) {
+	var result map[string]int64
+	if err := c.doRequest(http.MethodGet, "/api/traffic-stats", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) ReloadConfig(configJSON, subID string) error {
+	body, _ := json.Marshal(map[string]string{
+		"config_json": configJSON,
+		"sub_id":      subID,
+	})
+	return c.doRequest(http.MethodPost, "/api/set-proxy-mode", bytes.NewReader(body), nil)
+}
+
+func (c *Client) doRequest(method, path string, body io.Reader, out interface{}) error {
+	req, err := c.newRequest(method, path, body)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("service current-sub-id failed: %s", string(data))
+		return fmt.Errorf("service %s failed: %s", path, string(data))
 	}
-	var result map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out)
 	}
-	return result["sub_id"], nil
+	return nil
 }
 
 func (c *Client) newRequest(method, path string, body io.Reader) (*http.Request, error) {

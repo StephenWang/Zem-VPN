@@ -291,13 +291,15 @@ const runSpeedTest = async () => {
       }
     }
     if (!speedTestAbort.value) {
-      // 自动选择延迟最低且未超时的节点
       const available = servers.value.filter(s => typeof s.ping === 'number' && s.ping >= 0)
       if (available.length > 0) {
         available.sort((a, b) => a.ping - b.ping)
         const best = available[0]
         if (best.tag !== selectedTag.value) {
-          await selectServer(best.tag)
+          const ok = confirm(`测速完成，最优节点为 ${best.tag} (${best.ping}ms)，是否切换？`)
+          if (ok) {
+            await selectServer(best.tag)
+          }
         }
       }
       emit('success', '测速完成')
@@ -319,25 +321,16 @@ onMounted(() => {
 })
 
 onActivated(() => {
-  // keep-alive 激活时仅刷新连接状态和分组，不重新加载服务器列表
-  refreshConnectionState()
-})
-
-onActivated(async () => {
   if (!activatedOnce) {
     activatedOnce = true
-    await loadServers(false)
+    loadServers(false)
     return
   }
-  await refreshConnectionState()
+  refreshConnectionState()
 })
 
 onDeactivated(() => {
   // 离开 Servers 页面时终止正在进行的测速
-  abortSpeedTest()
-})
-
-onDeactivated(() => {
   abortSpeedTest()
 })
 

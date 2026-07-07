@@ -223,4 +223,4 @@ garble -literals -tiny build
 
 ## License
 
-MIT
+MulanPSL-2.0

@@ -79,6 +79,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
 import { IsAdmin, GetPlatformInfo, GetStatus, GetTrafficStats, GetProxyMode, SetProxyMode } from '@wailsjs/go/main/App'
+import { EventsOn } from '@wailsjs/runtime'
 
 const route = useRoute()
 const sidebarCollapsed = ref(false)
@@ -118,6 +119,8 @@ onMounted(async () => {
   await refreshStatus()
   statusTimer = setInterval(refreshStatus, 2000)
   trafficTimer = setInterval(refreshTraffic, 1000)
+  EventsOn('status', (s) => { status.value = s })
+  EventsOn('traffic', (stats) => { pushTraffic(stats) })
 })
 
 onUnmounted(() => {
@@ -130,21 +133,26 @@ const refreshStatus = async () => {
 }
 
 const refreshTraffic = async () => {
+  if (status.value !== 'connected') return
   try {
     const stats = await GetTrafficStats()
-    if (!stats) return
-    const up = stats.up || 0
-    const down = stats.down || 0
-    const upRate = Math.max(0, up - lastUp)
-    const downRate = Math.max(0, down - lastDown)
-    lastUp = up
-    lastDown = down
-    trafficHistory.value.push({ up: upRate, down: downRate })
-    if (trafficHistory.value.length > 60) {
-      trafficHistory.value.shift()
-    }
+    pushTraffic(stats)
   } catch (e) {
     // 未连接时忽略
+  }
+}
+
+const pushTraffic = (stats) => {
+  if (!stats) return
+  const up = stats.up || 0
+  const down = stats.down || 0
+  const upRate = Math.max(0, up - lastUp)
+  const downRate = Math.max(0, down - lastDown)
+  lastUp = up
+  lastDown = down
+  trafficHistory.value.push({ up: upRate, down: downRate })
+  if (trafficHistory.value.length > 60) {
+    trafficHistory.value.shift()
   }
 }
 

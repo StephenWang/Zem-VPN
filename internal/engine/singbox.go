@@ -124,7 +124,7 @@ func (e *SingBoxEngine) SetCurrentSubID(id string) {
 }
 
 // SpeedTest 通过指定 outbound 拨测目标地址，返回 TCP 握手耗时（毫秒）。
-func (e *SingBoxEngine) SpeedTest(outboundTag string, target string) (int64, error) {
+func (e *SingBoxEngine) SpeedTest(ctx context.Context, outboundTag string, target string) (int64, error) {
 	e.mu.RLock()
 	inst := e.instance
 	e.mu.RUnlock()
@@ -145,7 +145,7 @@ func (e *SingBoxEngine) SpeedTest(outboundTag string, target string) (int64, err
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	start := time.Now()

@@ -13,6 +13,7 @@ func TestSpeedCacheLoadSave(t *testing.T) {
 	if err := c.Set("sub1", map[string]int64{"a": 100, "b": -1, "c": 200}); err != nil {
 		t.Fatal(err)
 	}
+	_ = c.Flush()
 
 	c2 := NewSpeedTestCache(dir)
 	results := c2.Get("sub1")
@@ -43,6 +44,7 @@ func TestSpeedCacheClear(t *testing.T) {
 	c := NewSpeedTestCache(dir)
 	_ = c.Set("sub1", map[string]int64{"a": 100})
 	_ = c.Clear("sub1")
+	_ = c.Flush()
 	if len(c.Get("sub1")) != 0 {
 		t.Fatal("expected cleared")
 	}

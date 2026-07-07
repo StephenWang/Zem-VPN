@@ -14,6 +14,27 @@ import (
 	"zem/internal/settings"
 )
 
+func prepareTestConfig(dataDir, configJSON, subID string) (string, error) {
+	var cfg config.SingBoxConfig
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		return "", err
+	}
+	sm := settings.NewManager(dataDir)
+	opts := config.PrepareOptions{
+		DataDir:      dataDir,
+		ProxyPort:    sm.GetProxyPort(),
+		ProxyMode:    sm.GetProxyMode(),
+		TunSettings:  sm.GetTunSettings(),
+		SelectedNode: sm.GetSelectedNode(subID),
+		SubID:        subID,
+	}
+	if err := config.Prepare(&cfg, opts); err != nil {
+		return "", err
+	}
+	out, err := json.Marshal(cfg)
+	return string(out), err
+}
+
 func TestFixLegacyDNS(t *testing.T) {
 	oldConfig := `{
   "dns": {
@@ -35,7 +56,7 @@ func TestFixLegacyDNS(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	cfg.DNS = fixLegacyDNS(cfg.DNS)
+	cfg.DNS = config.NormalizeDNS(cfg.DNS)
 	if cfg.DNS == nil {
 		t.Fatal("dns should not be nil")
 	}
@@ -62,10 +83,6 @@ func TestFixLegacyDNS(t *testing.T) {
 
 func TestPrepareConfigRuleModeForcesProxyFinal(t *testing.T) {
 	dataDir := t.TempDir()
-	app := &App{
-		settings: settings.NewManager(dataDir),
-		dataDir:  dataDir,
-	}
 
 	ruleSetDir := filepath.Join(dataDir, "rule-set")
 	if err := os.MkdirAll(ruleSetDir, 0755); err != nil {
@@ -87,7 +104,7 @@ func TestPrepareConfigRuleModeForcesProxyFinal(t *testing.T) {
   "route": {"final":"direct","rules":[]}
 }`
 
-	prepared, err := app.prepareConfig(configJSON, "sub1")
+	prepared, err := prepareTestConfig(dataDir, configJSON, "sub1")
 	if err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}
@@ -123,7 +140,7 @@ func TestFixMissingDomainResolver(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	cfg.DNS = fixLegacyDNS(cfg.DNS)
+	cfg.DNS = config.NormalizeDNS(cfg.DNS)
 	if cfg.DNS == nil {
 		t.Fatal("dns should not be nil")
 	}
@@ -181,11 +198,6 @@ rules:
 
 func TestPrepareConfigPreservesSelectedServer(t *testing.T) {
 	dataDir := t.TempDir()
-	app := &App{
-		settings: settings.NewManager(dataDir),
-		dataDir:  dataDir,
-	}
-
 	configJSON := `{
   "inbounds": [],
   "outbounds": [
@@ -196,7 +208,7 @@ func TestPrepareConfigPreservesSelectedServer(t *testing.T) {
   "route": {"final":"selected"}
 }`
 
-	prepared, err := app.prepareConfig(configJSON, "sub1")
+	prepared, err := prepareTestConfig(dataDir, configJSON, "sub1")
 	if err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}

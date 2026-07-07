@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
-	"net"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -663,94 +662,6 @@ func buildDNS(dns ClashDNS) *DNSOptions {
 		Servers: servers,
 		Rules:   buildDNSRules(servers),
 	}
-}
-
-// ensureLocalDNSServer 如果没有本地 DNS server，则在开头插入一个，作为 address resolver
-func ensureLocalDNSServer(servers []DNSServer) []DNSServer {
-	for _, s := range servers {
-		if s.Type == "local" {
-			return servers
-		}
-	}
-	return append([]DNSServer{dnsServerFromAddress("local", "local", "")}, servers...)
-}
-
-// buildDNSRules 根据实际存在的 server tag 生成 DNS 规则，避免引用不存在的 tag
-// 同时避开 sing-box 1.14 已移除的 geosite/geoip 旧格式
-func buildDNSRules(servers []DNSServer) []DNSRule {
-	var localTag, remoteTag string
-	for _, s := range servers {
-		if strings.HasPrefix(s.Tag, "local") && localTag == "" {
-			localTag = s.Tag
-		}
-		if strings.HasPrefix(s.Tag, "remote") && remoteTag == "" {
-			remoteTag = s.Tag
-		}
-	}
-
-	var rules []DNSRule
-	if remoteTag != "" {
-		rules = append(rules, DNSRule{
-			Action: "route",
-			Server: remoteTag,
-			Rule:   Rule{DomainSuffix: []string{"google.com", "youtube.com", "twitter.com", "facebook.com", "github.com", "cloudflare.com"}},
-		})
-	}
-	if localTag != "" {
-		rules = append(rules, DNSRule{
-			Action: "route",
-			Server: localTag,
-			Rule:   Rule{DomainSuffix: []string{"cn"}},
-		})
-	}
-	return rules
-}
-
-func dnsServerFromAddress(address, tag, detour string) DNSServer {
-	s := DNSServer{Tag: tag, Detour: detour}
-	address = strings.TrimSpace(address)
-
-	switch {
-	case strings.HasPrefix(address, "https://"):
-		s.Type = "https"
-		u := strings.TrimPrefix(address, "https://")
-		if idx := strings.Index(u, "/"); idx > 0 {
-			s.Server = u[:idx]
-		} else {
-			s.Server = u
-		}
-		s.ServerPort = 443
-		if net.ParseIP(s.Server) == nil {
-			s.DomainResolver = &DomainResolverOptions{Server: "local"}
-		}
-	case strings.HasPrefix(address, "tls://"):
-		s.Type = "tls"
-		s.Server = strings.TrimPrefix(address, "tls://")
-		s.ServerPort = 853
-		if net.ParseIP(s.Server) == nil {
-			s.DomainResolver = &DomainResolverOptions{Server: "local"}
-		}
-	case strings.HasPrefix(address, "dhcp://"):
-		s.Type = "dhcp"
-	case address == "system" || address == "local":
-		s.Type = "local"
-	default:
-		// 默认作为 UDP DNS
-		s.Type = "udp"
-		if idx := strings.LastIndex(address, ":"); idx > 0 {
-			s.Server = address[:idx]
-			if port, err := strconv.Atoi(address[idx+1:]); err == nil {
-				s.ServerPort = port
-			}
-		} else {
-			s.Server = address
-			s.ServerPort = 53
-		}
-		if net.ParseIP(s.Server) == nil {
-			s.DomainResolver = &DomainResolverOptions{Server: "local"}
-		}
-	}
-	return s
 }
 
 // ========== 工具函数 ==========
