@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@floating-ui/dom": "^1.7.6",
     "vue": "^3.3.4",
     "vue-router": "^4.6.4"
   },

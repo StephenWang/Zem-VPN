@@ -1,33 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Component } from 'vue'
+import type { IconEmits, IconProps } from '@/types/elements/site-icon'
 
 defineOptions({
   inheritAttrs: false,
 })
 
-type IconField = {
-  value?: {
-    svgCode?: string | null
-    alt?: string | null
-  } | null
-} | null
-
-const props = withDefaults(defineProps<{
-  field?: IconField
-  name?: string
-  size?: string | null
-  svg?: string | null
-}>(), {
+const props = withDefaults(defineProps<IconProps>(), {
   field: null,
   name: undefined,
   size: null,
   svg: null,
 })
 
-const emit = defineEmits<{
-  click: [event: MouseEvent]
-}>()
+const emit = defineEmits<IconEmits>()
 
 const iconModules = import.meta.glob('../icons/*.vue', {
   eager: true,

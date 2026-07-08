@@ -35,7 +35,7 @@
               <span>{{ value }}</span>
             </div>
           </div>
-          <button @click="showPlatformInfo = false">关闭</button>
+          <SiteButton @click="showPlatformInfo = false" type="primary" theme="teal">关闭</SiteButton>
         </div>
       </div>
 
@@ -78,6 +78,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
+import SiteButton from './elements/SiteButton.vue'
 import { IsAdmin, GetPlatformInfo, GetStatus, GetTrafficStats, GetProxyMode, SetProxyMode } from '@wailsjs/go/main/App'
 import { EventsOn } from '@wailsjs/runtime'
 
@@ -351,16 +352,6 @@ main {
 
 .info-grid label {
   color: #888;
-}
-
-.modal-content button {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  background: #00d4aa;
-  color: #1a1a2e;
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .toast {

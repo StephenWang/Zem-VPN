@@ -24,9 +24,25 @@
           </div>
         </div>
         <div class="sub-actions">
-          <button @click.stop="updateSub(sub.id)" class="btn-secondary">更新</button>
-          <button @click.stop="editOptions(sub)" class="btn-secondary">选项</button>
-          <button @click.stop="deleteSub(sub.id)" class="btn-danger">删除</button>
+          <SiteButton 
+            @click.stop="updateSub(sub.id)" 
+            :loading="updatingIds.includes(sub.id)" 
+            type="secondary"
+            theme="teal"
+          >
+            更新
+          </SiteButton>
+          <SiteButton @click.stop="editOptions(sub)" type="secondary" theme="blue">
+            选项
+          </SiteButton>
+          <SiteButton 
+            @click.stop="deleteSub(sub.id)" 
+            type="primary" 
+            theme="danger"
+            :disabled="deletingIds.includes(sub.id)"
+          >
+            删除
+          </SiteButton>
         </div>
       </div>
     </section>
@@ -76,9 +92,9 @@
         </label>
       </div>
 
-      <button @click="addSub" :disabled="adding" class="btn-primary">
+      <SiteButton @click="addSub" :loading="adding" type="primary" theme="teal">
         {{ adding ? '添加中...' : '添加订阅' }}
-      </button>
+      </SiteButton>
     </section>
 
     <section class="profile-list">
@@ -92,15 +108,26 @@
           <p class="url">模式: {{ p.merge_mode }} | 包含 {{ p.subscription_ids.length }} 个订阅</p>
         </div>
         <div class="sub-actions">
-          <button
+          <SiteButton
             @click="connectProfile(p.id)"
             :disabled="!isAdmin || (currentSub === 'profile:' + p.id && status === 'connected')"
-            class="btn-primary"
+            type="primary"
+            theme="teal"
+            :loading="connectingProfileId === p.id"
           >
             {{ currentSub === 'profile:' + p.id && status === 'connected' ? '已连接' : '连接' }}
-          </button>
-          <button @click="editProfile(p)" class="btn-secondary">编辑</button>
-          <button @click="deleteProfile(p.id)" class="btn-danger">删除</button>
+          </SiteButton>
+          <SiteButton @click="editProfile(p)" type="secondary" theme="blue">
+            编辑
+          </SiteButton>
+          <SiteButton 
+            @click="deleteProfile(p.id)" 
+            type="primary" 
+            theme="danger"
+            :disabled="deletingProfileIds.includes(p.id)"
+          >
+            删除
+          </SiteButton>
         </div>
       </div>
 
@@ -129,9 +156,9 @@
             </label>
           </div>
         </div>
-        <button @click="createProfile" :disabled="creatingProfile" class="btn-primary">
+        <SiteButton @click="createProfile" :loading="creatingProfile" type="primary" theme="teal">
           {{ creatingProfile ? '创建中...' : '创建 Profile' }}
-        </button>
+        </SiteButton>
       </div>
     </section>
 
@@ -159,8 +186,12 @@
           跳过 TLS 证书校验
         </label>
         <div class="modal-actions">
-          <button @click="saveOptions" class="btn-primary">保存</button>
-          <button @click="editingSub = null" class="btn-secondary">取消</button>
+          <SiteButton @click="saveOptions" type="primary" theme="teal">
+            保存
+          </SiteButton>
+          <SiteButton @click="editingSub = null" type="secondary" theme="teal">
+            取消
+          </SiteButton>
         </div>
       </div>
     </div>
@@ -190,8 +221,12 @@
           </div>
         </div>
         <div class="modal-actions">
-          <button @click="saveProfile" class="btn-primary">保存</button>
-          <button @click="editingProfile = null" class="btn-secondary">取消</button>
+          <SiteButton @click="saveProfile" type="primary" theme="teal">
+            保存
+          </SiteButton>
+          <SiteButton @click="editingProfile = null" type="secondary" theme="teal">
+            取消
+          </SiteButton>
         </div>
       </div>
     </div>
@@ -200,6 +235,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, onActivated } from 'vue'
+import SiteButton from '../elements/SiteButton.vue'
 import {
   AddSubscription,
   AddSubscriptionWithOptions,
@@ -233,6 +269,12 @@ const creatingProfile = ref(false)
 const newProfileName = ref('')
 const newProfileMode = ref('union')
 const selectedProfileSubs = ref([])
+
+// Loading 状态管理
+const updatingIds = ref([])
+const deletingIds = ref([])
+const deletingProfileIds = ref([])
+const connectingProfileId = ref(null)
 
 const newSubOptions = ref({
   user_agent: '',
@@ -359,6 +401,7 @@ const connectProfile = async (id) => {
     showError('需要管理员权限')
     return
   }
+  connectingProfileId.value = id
   try {
     await ConnectProfile(id)
     currentSub.value = 'profile:' + id
@@ -367,10 +410,13 @@ const connectProfile = async (id) => {
   } catch (e) {
     await refreshStatus()
     showError('Profile 连接失败: ' + e)
+  } finally {
+    connectingProfileId.value = null
   }
 }
 
 const updateSub = async (id) => {
+  updatingIds.value.push(id)
   const wasConnected = currentSub.value === id
   try {
     await UpdateSubscription(id)
@@ -382,11 +428,14 @@ const updateSub = async (id) => {
     showSuccess('更新成功')
   } catch (e) {
     showError('更新失败: ' + e)
+  } finally {
+    updatingIds.value = updatingIds.value.filter(i => i !== id)
   }
 }
 
 const deleteSub = async (id) => {
   if (!confirm('确定删除此订阅?')) return
+  deletingIds.value.push(id)
   try {
     await DeleteSubscription(id)
     if (currentSub.value === id || currentSub.value === 'profile:' + id) {
@@ -399,6 +448,8 @@ const deleteSub = async (id) => {
     showSuccess('删除成功')
   } catch (e) {
     showError('删除失败: ' + e)
+  } finally {
+    deletingIds.value = deletingIds.value.filter(i => i !== id)
   }
 }
 
@@ -480,6 +531,7 @@ const saveProfile = async () => {
 
 const deleteProfile = async (id) => {
   if (!confirm('确定删除此 Profile?')) return
+  deletingProfileIds.value.push(id)
   try {
     await DeleteProfile(id)
     if (currentSub.value === 'profile:' + id) {
@@ -491,6 +543,8 @@ const deleteProfile = async (id) => {
     showSuccess('Profile 已删除')
   } catch (e) {
     showError('删除失败: ' + e)
+  } finally {
+    deletingProfileIds.value = deletingProfileIds.value.filter(i => i !== id)
   }
 }
 
@@ -702,40 +756,6 @@ onUnmounted(() => {
   padding: 10px;
   background: #1a1a2e;
   border-radius: 6px;
-}
-
-button {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: opacity 0.2s;
-}
-
-button:hover:not(:disabled) {
-  opacity: 0.85;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: #00d4aa;
-  color: #1a1a2e;
-  font-weight: 600;
-}
-
-.btn-secondary {
-  background: #0f3460;
-  color: #eee;
-}
-
-.btn-danger {
-  background: #e94560;
-  color: #fff;
 }
 
 .modal {

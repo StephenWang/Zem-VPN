@@ -266,8 +266,11 @@ func buildOutbound(p ClashProxy) Outbound {
 				Password: p.ObfsPassword,
 			}
 		}
-		if p.TLS || p.ServerName != "" || p.SNI != "" {
-			out.TLS = buildTLS(p)
+		// hysteria2 强制要求 TLS 配置，即使原始配置中没有显式设置
+		out.TLS = buildTLS(p)
+		// 如果没有 SNI，默认使用 server 地址
+		if out.TLS.ServerName == "" {
+			out.TLS.ServerName = p.Server
 		}
 		if p.Up != "" {
 			out.UpMbps = parseMbps(p.Up)

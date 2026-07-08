@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@wailsjs': path.resolve(__dirname, './wailsjs')
+      '@wailsjs': path.resolve(__dirname, './wailsjs'),
+      '@': path.resolve(__dirname, './src')
     }
   },
   build: {

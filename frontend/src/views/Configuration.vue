@@ -15,9 +15,9 @@
         />
         <p class="hint">默认 7890，修改后重新连接订阅生效</p>
       </div>
-      <button @click="savePort" :disabled="saving" class="btn-primary">
+      <SiteButton @click="savePort" :loading="saving" type="primary" theme="teal">
         {{ saving ? '保存中...' : '保存' }}
-      </button>
+      </SiteButton>
     </section>
 
     <section class="settings-card">
@@ -67,9 +67,9 @@
           GSO
         </label>
       </div>
-      <button @click="saveTun" :disabled="savingTun" class="btn-primary">
+      <SiteButton @click="saveTun" :loading="savingTun" type="primary" theme="teal">
         {{ savingTun ? '保存中...' : '保存 TUN 设置' }}
-      </button>
+      </SiteButton>
     </section>
 
     <section v-if="serviceAvailable" class="settings-card">
@@ -84,38 +84,46 @@
         </span>
       </div>
       <div class="form-row buttons">
-        <button
+        <SiteButton
           v-if="!serviceInstalled"
           @click="installService"
           :disabled="serviceLoading"
-          class="btn-primary"
+          type="primary"
+          theme="teal"
+          :loading="serviceLoading"
         >
           安装服务
-        </button>
-        <button
+        </SiteButton>
+        <SiteButton
           v-else
           @click="uninstallService"
           :disabled="serviceLoading"
-          class="btn-danger"
+          type="primary"
+          theme="danger"
+          :loading="serviceLoading"
         >
           卸载服务
-        </button>
-        <button
+        </SiteButton>
+        <SiteButton
           v-if="serviceInstalled && !serviceRunning"
           @click="startService"
           :disabled="serviceLoading"
-          class="btn-secondary"
+          type="secondary"
+          theme="teal"
+          :loading="serviceLoading"
         >
           启动服务
-        </button>
-        <button
+        </SiteButton>
+        <SiteButton
           v-if="serviceInstalled && serviceRunning"
           @click="stopService"
           :disabled="serviceLoading"
-          class="btn-secondary"
+          type="secondary"
+          theme="teal"
+          :loading="serviceLoading"
         >
           停止服务
-        </button>
+        </SiteButton>
       </div>
       <label class="checkbox">
         <input type="checkbox" v-model="serviceMode" @change="toggleServiceMode" />
@@ -139,6 +147,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import SiteButton from '../elements/SiteButton.vue'
 import {
   GetProxyPort,
   SetProxyPort,
@@ -455,40 +464,6 @@ const stopService = async () => {
 }
 
 .status-badge.warn {
-  background: #e94560;
-  color: #fff;
-}
-
-button {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: opacity 0.2s;
-}
-
-button:hover:not(:disabled) {
-  opacity: 0.85;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: #00d4aa;
-  color: #1a1a2e;
-  font-weight: 600;
-}
-
-.btn-secondary {
-  background: #0f3460;
-  color: #eee;
-}
-
-.btn-danger {
   background: #e94560;
   color: #fff;
 }

@@ -10,10 +10,16 @@
         </select>
       </div>
       <div class="toolbar-right">
-        <button @click="handleSpeedTestButton" :disabled="!currentSubID" class="btn-primary" :class="{ 'btn-danger': testing }">
-          <Icon name="Zap" class="btn-icon" :class="{ spinning: testing }" />
+        <SiteButton 
+          @click="handleSpeedTestButton" 
+          :disabled="!currentSubID" 
+          :type="testing ? 'primary' : 'primary'" 
+          :theme="testing ? 'danger' : 'teal'"
+          :loading="testing"
+          icon="Zap"
+        >
           {{ testing ? '终止测速' : '测速' }}
-        </button>
+        </SiteButton>
       </div>
     </div>
 
@@ -61,6 +67,7 @@ import { ref, computed, onMounted, watch, onActivated, onDeactivated } from 'vue
 import { useRoute } from 'vue-router'
 import Icon from '../elements/Icon.vue'
 import AppTabs from '../elements/AppTabs.vue'
+import SiteButton from '../elements/SiteButton.vue'
 import {
   GetServers,
   GetGroups,
@@ -402,31 +409,6 @@ const refreshConnectionState = async () => {
   font-size: 14px;
 }
 
-.toolbar-right button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.btn-icon {
-  width: 16px;
-  height: 16px;
-}
-
-.btn-icon :deep(svg) {
-  width: 16px;
-  height: 16px;
-}
-
-.btn-icon.spinning {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
 .spinner {
   display: inline-block;
   width: 12px;
@@ -435,6 +417,11 @@ const refreshConnectionState = async () => {
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .empty {
@@ -553,34 +540,5 @@ const refreshConnectionState = async () => {
   border-radius: 50%;
   font-size: 14px;
   font-weight: 600;
-}
-
-button {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: opacity 0.2s;
-}
-
-button:hover:not(:disabled) {
-  opacity: 0.85;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: #00d4aa;
-  color: #1a1a2e;
-  font-weight: 600;
-}
-
-.btn-primary.btn-danger {
-  background: #e94560;
-  color: #fff;
 }
 </style>
