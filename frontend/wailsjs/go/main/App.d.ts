@@ -3,6 +3,8 @@
 import {subscription} from '../models';
 import {settings} from '../models';
 
+export function AbortSpeedTest():Promise<void>;
+
 export function AddSubscription(arg1:string,arg2:string):Promise<string>;
 
 export function AddSubscriptionWithOptions(arg1:string,arg2:string,arg3:subscription.SubscriptionOptions):Promise<string>;
