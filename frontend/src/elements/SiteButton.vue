@@ -12,7 +12,7 @@
   </button>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 import Icon from './Icon.vue'
 
@@ -20,17 +20,17 @@ const props = defineProps({
   type: {
     type: String,
     default: 'primary',
-    validator: (value) => ['primary', 'secondary', 'tertiary'].includes(value)
+    validator: (value: string) => ['primary', 'secondary', 'tertiary'].includes(value)
   },
   theme: {
     type: String,
     default: 'default',
-    validator: (value) => ['default', 'teal', 'purple', 'blue', 'danger'].includes(value)
+    validator: (value: string) => ['default', 'teal', 'purple', 'blue', 'danger'].includes(value)
   },
   size: {
     type: String,
     default: 'medium',
-    validator: (value) => ['small', 'medium', 'large'].includes(value)
+    validator: (value: string) => ['small', 'medium', 'large'].includes(value)
   },
   disabled: {
     type: Boolean,
@@ -44,7 +44,7 @@ const props = defineProps({
   iconPosition: {
     type: String,
     default: 'left',
-    validator: (value) => ['left', 'right'].includes(value)
+    validator: (value: string) => ['left', 'right'].includes(value)
   }
 })
 
@@ -62,7 +62,7 @@ const rootClass = computed(() => ([
   }
 ]))
 
-const handleClick = (e) => {
+const handleClick = (e: MouseEvent) => {
   if (!props.disabled && !props.loading) {
     emit('click', e)
   }

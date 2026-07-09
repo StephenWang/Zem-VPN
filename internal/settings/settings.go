@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 const defaultProxyPort = 7890
@@ -49,20 +50,25 @@ func (t *TunSettings) Normalize() {
 }
 
 type Settings struct {
-	ProxyPort     int               `json:"proxy_port"`
-	CurrentSubID  string            `json:"current_sub_id,omitempty"`
-	Tun           TunSettings       `json:"tun"`
-	ServiceMode   bool              `json:"service_mode"`
-	ServicePort   int               `json:"service_port"`
-	ServiceToken  string            `json:"service_token,omitempty"`
-	ProxyMode     string            `json:"proxy_mode"`
-	SelectedNodes map[string]string `json:"selected_nodes,omitempty"`
+	ProxyPort             int               `json:"proxy_port"`
+	CurrentSubID          string            `json:"current_sub_id,omitempty"`
+	Tun                   TunSettings       `json:"tun"`
+	ServiceMode           bool              `json:"service_mode"`
+	ServicePort           int               `json:"service_port"`
+	ServiceToken          string            `json:"service_token,omitempty"`
+	ProxyMode             string            `json:"proxy_mode"`
+	SelectedNodes         map[string]string `json:"selected_nodes,omitempty"`
+	AutoReconnectOnUpdate *bool             `json:"auto_reconnect_on_update,omitempty"`
 }
 
 type Manager struct {
-	dataDir  string
-	settings Settings
-	mu       sync.RWMutex
+	dataDir   string
+	settings  Settings
+	mu        sync.RWMutex
+	saveMu    sync.Mutex
+	saveTimer *time.Timer
+	saveDelay time.Duration
+	closed    bool
 }
 
 func NewManager(dataDir string) *Manager {
@@ -74,6 +80,7 @@ func NewManager(dataDir string) *Manager {
 			ServicePort: 17519,
 			ProxyMode:   "rule",
 		},
+		saveDelay: 100 * time.Millisecond,
 	}
 	_ = m.Load()
 	m.settings.Tun.Normalize()
@@ -128,6 +135,13 @@ func (m *Manager) Load() error {
 }
 
 func (m *Manager) Save() error {
+	m.saveMu.Lock()
+	if m.saveTimer != nil {
+		m.saveTimer.Stop()
+		m.saveTimer = nil
+	}
+	m.saveMu.Unlock()
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -140,6 +154,43 @@ func (m *Manager) Save() error {
 		return err
 	}
 	return os.WriteFile(m.filePath(), data, 0644)
+}
+
+func (m *Manager) scheduleSave() error {
+	m.saveMu.Lock()
+	if m.closed {
+		m.saveMu.Unlock()
+		return fmt.Errorf("settings manager closed")
+	}
+	if m.saveTimer != nil {
+		m.saveTimer.Stop()
+	}
+	m.saveTimer = time.AfterFunc(m.saveDelay, func() {
+		_ = m.Flush()
+	})
+	m.saveMu.Unlock()
+	return nil
+}
+
+func (m *Manager) Flush() error {
+	m.saveMu.Lock()
+	if m.saveTimer != nil {
+		m.saveTimer.Stop()
+		m.saveTimer = nil
+	}
+	m.saveMu.Unlock()
+	return m.Save()
+}
+
+func (m *Manager) Close() error {
+	m.saveMu.Lock()
+	m.closed = true
+	if m.saveTimer != nil {
+		m.saveTimer.Stop()
+		m.saveTimer = nil
+	}
+	m.saveMu.Unlock()
+	return m.Flush()
 }
 
 func (m *Manager) GetProxyPort() int {
@@ -155,7 +206,7 @@ func (m *Manager) SetProxyPort(port int) error {
 	m.mu.Lock()
 	m.settings.ProxyPort = port
 	m.mu.Unlock()
-	return m.Save()
+	return m.scheduleSave()
 }
 
 func (m *Manager) GetCurrentSubID() string {
@@ -168,7 +219,7 @@ func (m *Manager) SetCurrentSubID(id string) error {
 	m.mu.Lock()
 	m.settings.CurrentSubID = id
 	m.mu.Unlock()
-	return m.Save()
+	return m.scheduleSave()
 }
 
 func (m *Manager) GetTunSettings() TunSettings {
@@ -200,7 +251,7 @@ func (m *Manager) SetTunSettings(tun TunSettings) error {
 	m.mu.Lock()
 	m.settings.Tun = tun
 	m.mu.Unlock()
-	return m.Save()
+	return m.scheduleSave()
 }
 
 func (m *Manager) GetServiceMode() bool {
@@ -213,7 +264,7 @@ func (m *Manager) SetServiceMode(enabled bool) error {
 	m.mu.Lock()
 	m.settings.ServiceMode = enabled
 	m.mu.Unlock()
-	return m.Save()
+	return m.scheduleSave()
 }
 
 func (m *Manager) GetServicePort() int {
@@ -238,7 +289,7 @@ func (m *Manager) SetServicePort(port int) error {
 	m.mu.Lock()
 	m.settings.ServicePort = port
 	m.mu.Unlock()
-	return m.Save()
+	return m.scheduleSave()
 }
 
 func (m *Manager) GetProxyMode() string {
@@ -258,7 +309,7 @@ func (m *Manager) SetProxyMode(mode string) error {
 	m.mu.Lock()
 	m.settings.ProxyMode = mode
 	m.mu.Unlock()
-	return m.Save()
+	return m.scheduleSave()
 }
 
 func (m *Manager) GetSelectedNode(subID string) string {
@@ -274,7 +325,23 @@ func (m *Manager) SetSelectedNode(subID, nodeTag string) error {
 	}
 	m.settings.SelectedNodes[subID] = nodeTag
 	m.mu.Unlock()
-	return m.Save()
+	return m.scheduleSave()
+}
+
+func (m *Manager) GetAutoReconnectOnUpdate() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.settings.AutoReconnectOnUpdate == nil {
+		return true
+	}
+	return *m.settings.AutoReconnectOnUpdate
+}
+
+func (m *Manager) SetAutoReconnectOnUpdate(enabled bool) error {
+	m.mu.Lock()
+	m.settings.AutoReconnectOnUpdate = &enabled
+	m.mu.Unlock()
+	return m.scheduleSave()
 }
 
 func generateServiceToken() string {

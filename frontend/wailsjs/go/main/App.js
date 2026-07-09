@@ -42,6 +42,10 @@ export function Disconnect() {
   return window['go']['main']['App']['Disconnect']();
 }
 
+export function GetAutoReconnectOnUpdate() {
+  return window['go']['main']['App']['GetAutoReconnectOnUpdate']();
+}
+
 export function GetCurrentSubscriptionID() {
   return window['go']['main']['App']['GetCurrentSubscriptionID']();
 }
@@ -136,6 +140,10 @@ export function SelectGroup(arg1, arg2) {
 
 export function SelectServer(arg1, arg2) {
   return window['go']['main']['App']['SelectServer'](arg1, arg2);
+}
+
+export function SetAutoReconnectOnUpdate(arg1) {
+  return window['go']['main']['App']['SetAutoReconnectOnUpdate'](arg1);
 }
 
 export function SetProxyMode(arg1) {

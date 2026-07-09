@@ -320,3 +320,43 @@ rules:
 		t.Fatal("expected selector outbound")
 	}
 }
+
+func TestBuildTransportHTTP2(t *testing.T) {
+	p := ClashProxy{
+		Network: "h2",
+		HTTPOpts: &ClashHTTPOpts{
+			Path:    []string{"/h2"},
+			Headers: map[string][]string{"Host": {"h2.example.com"}},
+		},
+	}
+	tr := buildTransport(p)
+	if tr == nil || tr.Type != "http2" {
+		t.Fatalf("expected http2 transport, got %+v", tr)
+	}
+	if tr.Path != "/h2" {
+		t.Fatalf("expected path /h2, got %s", tr.Path)
+	}
+	if tr.Headers["Host"] != "h2.example.com" {
+		t.Fatalf("unexpected headers: %+v", tr.Headers)
+	}
+}
+
+func TestBuildTransportHTTPOpts(t *testing.T) {
+	p := ClashProxy{
+		Network: "http",
+		HTTPOpts: &ClashHTTPOpts{
+			Path:    []string{"/http"},
+			Headers: map[string][]string{"Host": {"http.example.com"}},
+		},
+	}
+	tr := buildTransport(p)
+	if tr == nil || tr.Type != "http" {
+		t.Fatalf("expected http transport, got %+v", tr)
+	}
+	if tr.Path != "/http" {
+		t.Fatalf("expected path /http, got %s", tr.Path)
+	}
+	if tr.Headers["Host"] != "http.example.com" {
+		t.Fatalf("unexpected headers: %+v", tr.Headers)
+	}
+}

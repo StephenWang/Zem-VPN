@@ -40,6 +40,7 @@ const (
 	geositeCNURL  = "https://github.com/aleskxyz/sing-box-rules/releases/download/202607060934/geosite-cn.srs"
 	geoipCNURL    = "https://github.com/aleskxyz/sing-box-rules/releases/download/202607060934/geoip-cn.srs"
 	maxRuleSetAge = 7 * 24 * time.Hour
+	maxRuleSetSize = 64 << 20 // 64 MB
 )
 
 // Manager 负责连接生命周期、平台配置、服务客户端与测速。
@@ -240,12 +241,14 @@ func (m *Manager) ConnectProfile(ctx context.Context, profileID string) error {
 func (m *Manager) connectLocal(ctx context.Context, configJSON, subID string) error {
 	_ = m.engine.Stop()
 	_ = m.platform.Apply(false)
-	if err := m.platform.Apply(true); err != nil {
-		return fmt.Errorf("setup platform connection: %w", err)
-	}
 	if err := m.engine.Start(configJSON); err != nil {
 		_ = m.platform.Apply(false)
 		return err
+	}
+	if err := m.platform.Apply(true); err != nil {
+		_ = m.engine.Stop()
+		_ = m.platform.Apply(false)
+		return fmt.Errorf("setup platform connection: %w", err)
 	}
 	m.engine.SetCurrentSubID(subID)
 	_ = m.settings.SetCurrentSubID(subID)
@@ -260,6 +263,11 @@ func (m *Manager) connectService(ctx context.Context, configJSON, subID string) 
 	}
 	if err := sc.ReloadConfig(configJSON, subID); err != nil {
 		return err
+	}
+	if err := m.platform.Apply(true); err != nil {
+		_ = sc.Disconnect()
+		_ = m.platform.Apply(false)
+		return fmt.Errorf("apply platform in service mode: %w", err)
 	}
 	m.engine.SetCurrentSubID(subID)
 	_ = m.settings.SetCurrentSubID(subID)
@@ -562,6 +570,10 @@ func (m *Manager) OnSubscriptionUpdated(id string) {
 	if m.CurrentSubID() != id {
 		return
 	}
+	if !m.settings.GetAutoReconnectOnUpdate() {
+		fmt.Printf("subscription %s updated, auto-reconnect disabled, skipping\n", id)
+		return
+	}
 	sub := m.subManager.Get(id)
 	if sub == nil || sub.SingBoxJSON == "" {
 		return
@@ -831,11 +843,24 @@ func downloadFile(ctx context.Context, url, path string) error {
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(f, resp.Body)
+	limited := io.LimitReader(resp.Body, maxRuleSetSize+1)
+	written, err := io.Copy(f, limited)
 	_ = f.Close()
 	if err != nil {
 		_ = os.Remove(tmp)
 		return err
+	}
+	if written > maxRuleSetSize {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rule-set exceeds max size %d", maxRuleSetSize)
+	}
+	if written == 0 {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("empty rule-set downloaded")
+	}
+	if resp.ContentLength > 0 && written != resp.ContentLength {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("size mismatch: expected %d, got %d", resp.ContentLength, written)
 	}
 	return os.Rename(tmp, path)
 }

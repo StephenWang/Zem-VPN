@@ -38,3 +38,5 @@ package-lock.json
 yarn.lock
 pnpm-lock.yaml
 AGENTS.md
+# Go build cache (used in sandboxed/dev environments)
+.gocache/

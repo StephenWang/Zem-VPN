@@ -23,6 +23,8 @@ export function DeleteSubscription(arg1:string):Promise<void>;
 
 export function Disconnect():Promise<void>;
 
+export function GetAutoReconnectOnUpdate():Promise<boolean>;
+
 export function GetCurrentSubscriptionID():Promise<string>;
 
 export function GetGroups(arg1:string):Promise<Array<Record<string, any>>>;
@@ -70,6 +72,8 @@ export function RefreshServiceClient():Promise<boolean>;
 export function SelectGroup(arg1:string,arg2:string):Promise<void>;
 
 export function SelectServer(arg1:string,arg2:string):Promise<void>;
+
+export function SetAutoReconnectOnUpdate(arg1:boolean):Promise<void>;
 
 export function SetProxyMode(arg1:string):Promise<void>;
 

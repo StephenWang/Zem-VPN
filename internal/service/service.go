@@ -43,7 +43,7 @@ func (s *Service) Start(port int) error {
 	mux.HandleFunc("/api/disconnect", s.handleDisconnect)
 	mux.HandleFunc("/api/current-sub-id", s.handleCurrentSubID)
 	mux.HandleFunc("/api/traffic-stats", s.handleTrafficStats)
-	mux.HandleFunc("/api/set-proxy-mode", s.handleSetProxyMode)
+	mux.HandleFunc("/api/set-proxy-mode", s.handleReloadConfig)
 	mux.HandleFunc("/api/select-server", s.handleSelectServer)
 	mux.HandleFunc("/api/select-group", s.handleSelectGroup)
 
@@ -162,7 +162,7 @@ func (s *Service) handleTrafficStats(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]int64{"up": up, "down": down})
 }
 
-func (s *Service) handleSetProxyMode(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	if !s.authorize(w, r) {
 		return
 	}
@@ -193,11 +193,11 @@ func (s *Service) handleSetProxyMode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleSelectServer(w http.ResponseWriter, r *http.Request) {
-	s.handleSetProxyMode(w, r)
+	s.handleReloadConfig(w, r)
 }
 
 func (s *Service) handleSelectGroup(w http.ResponseWriter, r *http.Request) {
-	s.handleSetProxyMode(w, r)
+	s.handleReloadConfig(w, r)
 }
 
 func respondJSON(w http.ResponseWriter, statusCode int, payload interface{}) {

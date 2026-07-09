@@ -2,6 +2,7 @@ package platform
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"runtime"
 
@@ -79,7 +80,7 @@ func (m *Manager) Apply(connected bool) error {
 			return err
 		}
 		if runtime.GOOS == "darwin" && mode != "system" {
-			_ = sys.SetupMacOSDNS("172.19.0.2")
+			_ = sys.SetupMacOSDNS(m.tunDNSAddress())
 		}
 		return nil
 	}
@@ -92,4 +93,46 @@ func (m *Manager) Apply(connected bool) error {
 		_ = sys.ResetMacOSDNS()
 	}
 	return nil
+}
+
+// tunDNSAddress 浠巌UN CIDR 鎺ㄥ DNS 鏈嶅姟鍣ㄥ湴鍧€
+func (m *Manager) tunDNSAddress() string {
+	tun := m.settings.GetTunSettings()
+	if len(tun.Address) == 0 {
+		return "172.19.0.2"
+	}
+
+	ip, ipNet, err := net.ParseCIDR(tun.Address[0])
+	if err != nil {
+		return "172.19.0.2"
+	}
+
+	network := ipNet.IP.Mask(ipNet.Mask)
+	var candidates []net.IP
+	for offset := 1; offset <= 2; offset++ {
+		addr := make([]byte, len(network))
+		copy(addr, network)
+		for i := 0; i < offset; i++ {
+			for j := len(addr) - 1; j >= 0; j-- {
+				addr[j]++
+				if addr[j] != 0 {
+					break
+				}
+			}
+		}
+		if ipNet.Contains(addr) {
+			candidates = append(candidates, addr)
+		}
+	}
+
+	if len(candidates) < 2 {
+		return "172.19.0.2"
+	}
+
+	for _, addr := range candidates {
+		if !addr.Equal(ip) {
+			return addr.String()
+		}
+	}
+	return candidates[1].String()
 }

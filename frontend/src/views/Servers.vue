@@ -79,7 +79,8 @@ import {
   GetCurrentSubscriptionID,
   GetSelectedNode,
   GetSpeedTestCache,
-  ListSubscriptions
+  ListSubscriptions,
+  AbortSpeedTest
 } from '@wailsjs/go/main/App'
 
 const servers = ref([])
@@ -237,6 +238,10 @@ const loadCurrentGroup = async (subID) => {
 const selectServer = async (tag) => {
   if (!currentSubID.value) return
   try {
+    // 如果正在测速，先停止测速
+    if (testing.value) {
+      abortSpeedTest()
+    }
     await SelectServer(currentSubID.value, tag)
     selectedTag.value = tag
     emit('success', `已切换至 ${tag}`)
@@ -273,12 +278,15 @@ const runSpeedTest = async () => {
   testing.value = true
   speedTestAbort.value = false
   try {
-    const batchSize = 20
+    const batchSize = 10  // 减小批处理大小，提供更流畅的取消体验
     const tags = servers.value.map(s => s.tag)
     for (let i = 0; i < tags.length; i += batchSize) {
       if (speedTestAbort.value) break
       const batch = tags.slice(i, i + batchSize)
-      testingTag.value = batch[0]
+      // 更新当前正在测试的节点（显示为第一个）
+      if (batch.length > 0) {
+        testingTag.value = batch[0]
+      }
       try {
         const results = await SpeedTestNodes(currentSubID.value, batch)
         for (const server of servers.value) {
@@ -288,11 +296,14 @@ const runSpeedTest = async () => {
           }
         }
       } catch (e) {
-        for (const tag of batch) {
-          const server = servers.value.find(s => s.tag === tag)
-          if (server) {
-            server.ping = -1
-            pingCache.value[tag] = -1
+        // 仅在测速未被取消时才显示错误
+        if (!speedTestAbort.value) {
+          for (const tag of batch) {
+            const server = servers.value.find(s => s.tag === tag)
+            if (server) {
+              server.ping = -1
+              pingCache.value[tag] = -1
+            }
           }
         }
       }
@@ -310,9 +321,14 @@ const runSpeedTest = async () => {
         }
       }
       emit('success', '测速完成')
+    } else {
+      emit('success', '测速已取消')
     }
   } catch (e) {
-    emit('error', '测速失败: ' + e)
+    // 仅在测速未被取消时才显示错误
+    if (!speedTestAbort.value) {
+      emit('error', '测速失败: ' + e)
+    }
   } finally {
     testing.value = false
     testingTag.value = ''
@@ -322,6 +338,7 @@ const runSpeedTest = async () => {
 
 const abortSpeedTest = () => {
   speedTestAbort.value = true
+  AbortSpeedTest()
 }
 
 onMounted(() => {

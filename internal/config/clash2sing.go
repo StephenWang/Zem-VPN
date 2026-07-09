@@ -194,8 +194,11 @@ func buildOutbound(p ClashProxy) Outbound {
 		out.ServerPort = p.Port
 		out.Password = p.Password
 		out.Transport = buildTransport(p)
-		if p.TLS || p.ServerName != "" || p.SNI != "" {
-			out.TLS = buildTLS(p)
+		// trojan 强制要求 TLS 配置，即使原始配置中没有显式设置
+		out.TLS = buildTLS(p)
+		// 如果没有 SNI，默认使用 server 地址
+		if out.TLS.ServerName == "" {
+			out.TLS.ServerName = p.Server
 		}
 
 	case "shadowsocks", "ss":
@@ -369,9 +372,34 @@ func buildTransport(p ClashProxy) *Transport {
 			ServiceName: p.GRPCOpts.ServiceName,
 		}
 	case "http":
-		return &Transport{Type: "http"}
+		t := &Transport{Type: "http"}
+		applyHTTPOpts(t, p.HTTPOpts)
+		return t
+	case "h2", "http2":
+		t := &Transport{Type: "http2"}
+		applyHTTPOpts(t, p.HTTPOpts)
+		return t
 	}
 	return nil
+}
+
+func applyHTTPOpts(t *Transport, opts *ClashHTTPOpts) {
+	if opts == nil {
+		return
+	}
+	if len(opts.Path) > 0 {
+		t.Path = opts.Path[0]
+	}
+	if opts.Headers != nil {
+		for k, v := range opts.Headers {
+			if len(v) > 0 {
+				if t.Headers == nil {
+					t.Headers = make(map[string]string)
+				}
+				t.Headers[k] = v[0]
+			}
+		}
+	}
 }
 
 func buildTLS(p ClashProxy) *TLSOptions {

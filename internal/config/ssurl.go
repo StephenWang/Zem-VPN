@@ -271,7 +271,7 @@ func looksLikeSingBoxJSON(data []byte) bool {
 	return hasOutbounds || hasInbounds
 }
 
-// normalizeSingBoxJSON 标准化 sing-box JSON：移除不支持的旧字段，补全默认路由/DNS
+// normalizeSingBoxJSON 标准化 sing-box JSON：移除不支持的旧字段，补全默认路由/DNS，处理重复标签
 func normalizeSingBoxJSON(data []byte) (string, error) {
 	var cfg SingBoxConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
@@ -307,6 +307,68 @@ func normalizeSingBoxJSON(data []byte) (string, error) {
 	if !hasBlock {
 		cfg.Outbounds = append(cfg.Outbounds, Outbound{Type: "block", Tag: "block"})
 	}
+	
+	// 处理重复的 outbound 标签
+	tagMap := make(map[string]int)
+	newOutbounds := make([]Outbound, 0, len(cfg.Outbounds))
+	tagReplacements := make(map[string]string) // oldTag -> newTag
+	
+	for _, out := range cfg.Outbounds {
+		originalTag := out.Tag
+		newTag := originalTag
+		
+		// 检查并处理重复标签
+		if count, exists := tagMap[originalTag]; exists {
+			// 生成新的唯一标签
+			for i := count + 1; ; i++ {
+				candidateTag := fmt.Sprintf("%s-%d", originalTag, i)
+				if _, exists := tagMap[candidateTag]; !exists {
+					newTag = candidateTag
+					break
+				}
+			}
+			// 记录标签替换关系
+			tagReplacements[originalTag] = newTag
+		}
+		
+		tagMap[newTag] = 1
+		
+		// 创建新的 outbound
+		newOut := out
+		newOut.Tag = newTag
+		newOutbounds = append(newOutbounds, newOut)
+	}
+	
+	cfg.Outbounds = newOutbounds
+	
+	// 更新 selector/urltest 等 outbound 中的标签引用
+	for i := range cfg.Outbounds {
+		if len(cfg.Outbounds[i].Outbounds) > 0 {
+			newOutboundsRef := make([]string, 0, len(cfg.Outbounds[i].Outbounds))
+			for _, tag := range cfg.Outbounds[i].Outbounds {
+				if newTag, replaced := tagReplacements[tag]; replaced {
+					newOutboundsRef = append(newOutboundsRef, newTag)
+				} else {
+					newOutboundsRef = append(newOutboundsRef, tag)
+				}
+			}
+			cfg.Outbounds[i].Outbounds = newOutboundsRef
+		}
+		// 更新 default 标签
+		if cfg.Outbounds[i].Default != "" {
+			if newTag, replaced := tagReplacements[cfg.Outbounds[i].Default]; replaced {
+				cfg.Outbounds[i].Default = newTag
+			}
+		}
+	}
+	
+	// 更新 route.final 标签
+	if cfg.Route.Final != "" {
+		if newTag, replaced := tagReplacements[cfg.Route.Final]; replaced {
+			cfg.Route.Final = newTag
+		}
+	}
+	
 	if cfg.Route.Final == "" {
 		cfg.Route.Final = "direct"
 	}

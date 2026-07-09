@@ -14,7 +14,7 @@ func RegisterWindowsService(serviceName, displayName, exePath string) error {
 	}
 
 	cmd := exec.Command("sc.exe", "create", serviceName,
-		"binPath=", exePath,
+		"binPath=", exePath, "--service",
 		"DisplayName=", displayName,
 		"start=", "auto",
 	)

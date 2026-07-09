@@ -98,6 +98,7 @@ func (a *App) Shutdown(ctx context.Context) {
 			}
 		}
 	}
+	_ = a.settings.Close()
 }
 
 func (a *App) autoConnectLastSubscription() {
@@ -379,6 +380,14 @@ func (a *App) GetProxyMode() string {
 
 func (a *App) SetProxyMode(mode string) error {
 	return a.connMgr.SetProxyMode(a.ctx, mode)
+}
+
+func (a *App) GetAutoReconnectOnUpdate() bool {
+	return a.settings.GetAutoReconnectOnUpdate()
+}
+
+func (a *App) SetAutoReconnectOnUpdate(enabled bool) error {
+	return a.settings.SetAutoReconnectOnUpdate(enabled)
 }
 
 // ========== TUN 设置 ==========

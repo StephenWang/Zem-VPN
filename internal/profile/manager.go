@@ -64,7 +64,8 @@ func (m *Manager) LoadAll() error {
 	}
 	for _, p := range list {
 		if p.ID != "" {
-			m.profiles[p.ID] = &p
+			profileCopy := p
+			m.profiles[p.ID] = &profileCopy
 		}
 	}
 	return nil
